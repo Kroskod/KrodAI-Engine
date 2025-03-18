@@ -49,7 +49,7 @@ class LLMManager:
         api_keys = {}
         
         # Try to get from environment variables
-        for provider in ["openai", "anthropic", "cohere"]:
+        for provider in ["openai", "anthropic", "cohere",]:
             env_var = f"{provider.upper()}_API_KEY"
             if env_var in os.environ:
                 api_keys[provider] = os.environ[env_var]
@@ -200,9 +200,9 @@ class LLMManager:
                 }
             }
     
-    def _generate_openai(self, prompt: str, model: str, temperature: float, max_tokens: int) -> str:
+    def _generate_claude(self, prompt: str, model: str, temperature: float, max_tokens: int) -> str:
         """
-        Generate a response using OpenAI's API.
+        Generate a response using claude's API.
         
         Args:
             prompt: The prompt to send
@@ -213,7 +213,7 @@ class LLMManager:
         Returns:
             Generated text
         """
-        # This would use the OpenAI Python client in a real implementation
+        # This would use the Claude Python client in a real implementation
         # For now, we'll use a simple requests implementation
         
         api_key = self.api_keys["openai"]
