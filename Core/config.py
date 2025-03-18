@@ -1,0 +1,254 @@
+"""
+Krod Configuration - Configuration management for The Krod AI
+"""
+
+import os
+import yaml
+import logging
+from typing import Dict, Any, Optional
+
+# Default configuration values
+DEFAULT_CONFIG = {
+    # Core settings
+    "debug": False,
+    "log_level": "INFO",
+    "log_file": "krod.log",
+
+    # LLM settings
+    "llm": {
+        "default_provider": "anthropic",
+        "default_model": "claude-3-opus-20240229",
+        "cache_enabled": True,
+        "cache_size": 1000,
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "cache_dir": "cache",
+        "cache_ttl": 3600,
+    },
+
+    # Research context settings
+    "research_context": {
+        "max_sessions": 100,
+        "max_history_per_session": 100,
+        "auto_save": True,
+        "auto_save_path": "data/sessions",
+        "auto_save_interval": 3600,
+    },
+
+    #Domain specific settings
+    "domains": {
+        "code": {
+            "enabled": True,
+            "supported_languages": ["python", "javascript", "java", "c++", "rust", "golang" ]
+        },
+        "math": {
+            "enabled": True,
+            "numerical_precision": 6,
+            "max_equations": 10,
+        },
+        "science": {
+            "enabled": True,
+            "max_papers_per_query": 10,
+            "max_references_per_paper": 5,
+            "max_citations_per_reference": 10,
+            "max_citations_per_paper": 10,
+        }
+    },
+
+    # Knowledge graph settings
+    "knowledge_graph": {
+        "enabled": True,
+        "persistence": True,
+        "storage_path": "data/knowledge",
+    },
+
+    # Interface settings
+    "interface": {
+        "cli": {
+            "enabled": True,
+            "history_file": ".krod_history",
+        },
+        "api": {
+            "enabled": False,
+            "host": "127.0.0.1",
+            "port": 5000,
+            "cors_origins": ["*"],
+            "rate_limit": 100
+        },
+        "web": {
+            "enabled": False,
+            "host": "127.0.0.1",
+            "port": 8000,
+        }
+    }
+}
+
+
+def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
+
+    """
+    Load the Krod configuration.
+
+    Args: 
+        config_path (Optional[str]): The path to a YAML configuration file.
+
+    Returns:
+        Configuration Dictionary
+    """
+
+    # Start with default configuration
+    config = DEFAULT_CONFIG.copy()
+
+    # Load for configuration file in standard locations if not specified
+    if config_path is None: 
+        if "KROD_CONFIG" in os.environ:
+            config_path = os.environ["KROD_CONFIG"]
+        else:
+            # Check standard locations
+            standard_locations = [
+                "./krod_config.yaml",
+                "./config/krod.yaml",
+                "~/.krod/config.yaml",
+                "/etc/krod/config.yaml"
+            ]
+
+            for path in standard_locations:
+                expanded_path = os.path.expanduser(path)
+                if os.path.exists(expanded_path):
+                    config_path = expanded_path
+                    break
+
+    # Load the configuration file if found
+    if config_path:
+        try: 
+            with open(config_path, "r") as f:
+                file_config = yaml.safe_load(f)
+
+                # Merge configuration (deep merge would be better but for now this is good enough)
+                _deep_update(config, file_config)
+                
+                logging.info(f"Loaded configuration from {config_path}")
+        except Exception as e:
+            logging.error(f"Error loading configuration from {config_path}: {str(e)}")
+
+        # Override with environment variables
+        _override_from_env(config)
+
+        # Set up logging based on configuration
+        _configure_logging(config)
+
+    return config
+
+
+def _deep_update(target: Dict[str, Any], source: Dict[str, Any]) -> None:
+    
+    """
+    Recursively update a nested dictionary.
+
+    Args:
+        base_dict: The dictionary to update
+        update_dict: The dictionary with update values
+    """
+    
+    for key, value in update_dict.items():
+        if (
+            key in base_dict and
+            isinstance(value, dict) and
+            isinstance(base_dict[key], dict)
+        ):
+            _deep_update(base_dict[key], value)
+        else:
+            base_dict[key] = value
+
+
+def _override_from_env(config: Dict[str, Any], prefix: str = "KROD") -> None:
+    """
+    Override configuration values from environment variables. 
+
+    Environment variables should be in the format: 
+    KROD_SECTION_SUBSECTION_KEY=value
+
+    Args:
+        config: The configuration dictionary to update
+        prefix: The prefix for environment variables (default: "KROD")
+    """
+    for env_key, env_value in os.environ.items():
+        if env_key.startswith(f"{prefix}_"):
+            # Split the key into parts
+            parts = env_key[len(prefix) + 1:].lower().split('_')
+            
+            # Navigate to the right spot in the config
+            current = config
+            for part in parts[:-1]:
+                if part not in current:
+                    current[part] = {}
+                current = current[part]
+            
+            # Set the value, with type conversion
+            key = parts[-1]
+            if env_value.lower() in ('true', 'yes', '1'):
+                current[key] = True
+            elif env_value.lower() in ('false', 'no', '0'):
+                current[key] = False
+            elif env_value.isdigit():
+                current[key] = int(env_value)
+            elif env_value.replace('.', '', 1).isdigit() and env_value.count('.') < 2:
+                current[key] = float(env_value)
+            else:
+                current[key] = env_value
+
+
+def _configure_logging(config: Dict[str, Any]) -> None:
+    """
+    Configure logging based on configuration.
+
+    Args:
+        config: The configuration dictionary
+    """
+    log_level_name = config.get("log_level", "INFO")
+    log_level = getattr(logging, log_level_name.upper(), logging.INFO)
+
+    # Set up logging
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        filename=config.get("log_file", "krod.log"),
+        filemode="a"
+    )
+
+    # Set debug mode
+    if config.get("debug", False):
+        logging.getLogger().setLevel(logging.DEBUG)
+
+def save_config(config: Dict[str, Any], config_path: str) -> None:
+
+    """
+    Save the configuration to a file.
+
+    Args:
+        config: The configuration dictionary
+        config_path: The path to save the configuration file
+    """
+    try:
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(os.path.abspath(config_path)), exist_ok=True)
+
+        # Write config to file
+        with open(config_path, "w") as f:
+            yaml.dump(config, f, default_flow_style=False)
+
+        return True
+    except Exception as e:
+        logging.error(f"Error saving configuration to {config_path}: {str(e)}")
+        return False
+    
+def get_default_config_path() -> Dict[str, Any]:
+    """
+    Get the default configuration path.
+
+    Returns:
+        The default configuration path
+    """
+    return DEFAULT_CONFIG.copy()
+
+
