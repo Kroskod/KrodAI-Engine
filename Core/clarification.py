@@ -1,5 +1,7 @@
 """
 KROD Clarification System - Identifies ambiguities and seeks clarification.
+
+I call it Let Me Understand This.
 """
 
 import logging
