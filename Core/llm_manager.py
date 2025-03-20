@@ -8,6 +8,7 @@ import json
 import os
 from typing import Dict, Any, List, Optional, Union
 import requests
+from .token_manager import TokenManager
 
 class LLMManager:
     """
@@ -26,6 +27,7 @@ class LLMManager:
         """
         self.logger = logging.getLogger("krod.llm_manager")
         self.config = config or {}
+        self.token_manager = TokenManager(self.config.get("token_management", {}))
         
         # Load API keys from environment or config
         self.api_keys = self._load_api_keys()
@@ -156,6 +158,11 @@ class LLMManager:
             self.logger.debug(f"Cache hit for prompt: {prompt[:50]}...")
             return self.cache[cache_key]
         
+        # Check token limit
+        estimated_tokens = len(prompt) // 4 + max_tokens  # Rough estimation
+        if not self.token_manager.can_make_request(estimated_tokens):
+            raise ValueError("Token limit exceeded. Try again later or reduce request size.")
+        
         # Generate based on provider
         start_time = time.time()
         
@@ -168,6 +175,10 @@ class LLMManager:
                 response = self._generate_cohere(prompt, model, temperature, max_tokens)
             else:
                 raise ValueError(f"Unsupported provider: {provider}")
+            
+            # Estimate actual tokens (prompt + response)
+            used_tokens = len(prompt) // 4 + len(response) // 4  # Rough estimation
+            self.token_manager.record_usage(used_tokens, model, provider)
             
             # Add metadata
             result = {
