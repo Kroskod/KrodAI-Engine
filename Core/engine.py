@@ -6,6 +6,9 @@ import logging
 from typing import Dict, Any, List, Optional
 import importlib
 import pkgutil
+from .reasoning import ReasoningSystem
+from .clarification import ClarificationSystem
+from .common_sense import CommonSenseSystem
 
 class KrodEngine:
     """
@@ -24,11 +27,15 @@ class KrodEngine:
         """
         self.logger = logging.getLogger("krod.engine")
         self.config = config or {}
+
         
         # Initialize core components
         self.research_context = self._initialize_research_context()
         self.knowledge_graph = self._initialize_knowledge_graph()
         self.llm_manager = self._initialize_llm_manager()
+        self.reasoning_system = ReasoningSystem(self.llm_manager, self.config.get("reasoning", {}))
+        self.clarification_system = ClarificationSystem(self.llm_manager, self.config.get("clarification", {}))
+        self.common_sense_system = CommonSenseSystem(self.config.get("common_sense", {}))
         
         # Load modules dynamically
         self.modules = self._load_modules()
@@ -91,27 +98,73 @@ class KrodEngine:
         """
         self.logger.info("Processing query: %s", query)
         
+        # Get or create research context
+        context = None
+        if hasattr(self.research_context, 'get'):
+            context = self.research_context.get(context_id) if context_id else self.research_context.create()
+            # Add query to context
+            if hasattr(context, 'add_query'):
+                context.add_query(query)
+        
+        # Apply common sense to determine approach
+        common_sense = self.common_sense_system.apply_common_sense(query, "unknown")
+        
+        # Check if clarification is needed
+        if common_sense["seek_clarification"]:
+            clarification_result = self.clarification_system.check_needs_clarification(query)
+            if clarification_result["needs_clarification"]:
+                # Format clarification questions
+                clarification_response = self.clarification_system.format_clarification_response(
+                    clarification_result["questions"]
+                )
+                
+                # Add response to context if available
+                if context and hasattr(context, 'add_response'):
+                    context.add_response(clarification_response)
+                
+                return {
+                    "response": clarification_response,
+                    "needs_clarification": True,
+                    "context_id": context.id if context else None,
+                    "domain": "clarification"
+                }
+        
         # Analyze the query to determine the domain and required capabilities
         domain, capabilities = self._analyze_query(query)
         
-        # Process the query using the appropriate modules
-        results = []
-        for capability in capabilities:
-            domain_name, capability_name = capability.split('.')
-            if domain_name in self.modules:
-                module = self.modules[domain_name]
-                if capability_name in module:
-                    method = module[capability_name]
-                    result = method(query)
-                    results.append(result)
+        # Apply reasoning if appropriate
+        final_response = None
+        if common_sense["use_reasoning"]:
+            reasoning_result = self.reasoning_system.apply_reasoning(query, domain)
+            if reasoning_result["used_reasoning"]:
+                final_response = reasoning_result["final_response"]
         
-        # Integrate results
-        integrated_result = self._integrate_results(results)
+        # If no response from reasoning, process normally
+        if not final_response:
+            # Process the query using the appropriate modules
+            results = []
+            for capability in capabilities:
+                domain_name, capability_name = capability.split('.')
+                if domain_name in self.modules:
+                    module = self.modules[domain_name]
+                    if capability_name in module:
+                        method = module[capability_name]
+                        result = method(query)
+                        results.append(result)
+            
+            # Integrate results
+            final_response = self._integrate_results(results)
+        
+        # Add response to context if available
+        if context and hasattr(context, 'add_response'):
+            context.add_response(final_response)
         
         return {
-            "response": integrated_result,
+            "response": final_response,
+            "context_id": context.id if context else None,
             "domain": domain,
-            "capabilities": capabilities
+            "capabilities": capabilities,
+            "common_sense": common_sense
         }
     
     def _analyze_query(self, query: str) -> tuple:
