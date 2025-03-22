@@ -20,6 +20,9 @@ from modules.code.analyzer import CodeAnalyzer
 from modules.math.solver import MathSolver
 from modules.research.literature import LiteratureAnalyzer
 
+# security validator
+from .security_validator import SecurityValidator
+
 logger = logging.getLogger(__name__)
 
 class KrodEngine:
@@ -60,6 +63,9 @@ class KrodEngine:
         self.code_analyzer = CodeAnalyzer(self.llm_manager)
         self.math_solver = MathSolver(self.llm_manager)
         self.literature_analyzer = LiteratureAnalyzer(self.llm_manager)
+
+        # Initialize security validator
+        self.security_validator = SecurityValidator()
         
         # Load modules dynamically
         self.modules = self._load_modules()
@@ -122,6 +128,34 @@ class KrodEngine:
         """
         self.logger.info("Processing query: %s", query)
         
+        # Perform security validation first
+        security_check = self.security_validator.validate_query(query)
+        
+        # Initialize response with security information
+        response_data = {
+            "response": "",
+            "context_id": None,
+            "domain": "general",
+            "security_level": security_check["security_level"],
+            "security_warnings": security_check["warnings"],
+            "security_recommendations": security_check["recommendations"]
+        }
+        
+        # If query is restricted, return security notice
+        if security_check["restricted"]:
+            response_data["response"] = """
+            This query involves highly sensitive security topics that require expert review.
+            Please consult security professionals for guidance on this topic.
+            """
+            return response_data
+        
+        # Add security disclaimer if required
+        if security_check["requires_disclaimer"]:
+            disclaimer = self.security_validator.get_security_disclaimer(
+                security_check["security_level"]
+            )
+            response_data["security_disclaimer"] = disclaimer
+        
         # Get or create research context
         context = None
         if hasattr(self.research_context, 'get'):
@@ -146,12 +180,10 @@ class KrodEngine:
                 if context and hasattr(context, 'add_response'):
                     context.add_response(clarification_response)
                 
-                return {
-                    "response": clarification_response,
-                    "needs_clarification": True,
-                    "context_id": context.id if hasattr(context, 'id') else None,
-                    "domain": "clarification"
-                }
+                response_data["response"] = clarification_response
+                response_data["needs_clarification"] = True
+                response_data["domain"] = "clarification"
+                return response_data
         
         # Analyze the query to determine the domain and required capabilities
         domain, capabilities = self._analyze_query(query)
@@ -214,14 +246,20 @@ class KrodEngine:
             usage_stats = self.token_manager.get_usage_stats()
             token_usage = usage_stats.get("daily_tokens_used", 0)
         
-        return {
-            "response": final_response,
-            "context_id": context.id if hasattr(context, 'id') else None,
-            "domain": domain,
-            "capabilities": capabilities,
-            "common_sense": common_sense,
-            "token_usage": token_usage
-        }
+        response_data["response"] = final_response
+        response_data["context_id"] = context.id if hasattr(context, 'id') else None
+        response_data["domain"] = domain
+        response_data["capabilities"] = capabilities
+        response_data["common_sense"] = common_sense
+        response_data["token_usage"] = token_usage
+        
+        # If security disclaimer exists, prepend it to the response
+        if "security_disclaimer" in response_data:
+            response_data["response"] = (
+                response_data["security_disclaimer"] + "\n\n" + response_data["response"]
+            )
+        
+        return response_data
     
     def _analyze_query(self, query: str) -> tuple:
         """
@@ -357,4 +395,3 @@ class KrodEngine:
         return {"daily_tokens_used": 0, "daily_limit": 100000}
     
     
-
