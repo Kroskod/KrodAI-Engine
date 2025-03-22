@@ -380,4 +380,35 @@ class LiteratureAnalyzer:
             "token_usage": response.get("token_usage", 0)
         }
     
-    
+    def _generate_research_plan(self, topic: str, domain: str) -> Dict[str, Any]:
+        """
+        Generate a research plan for a given topic.
+        
+        Args:
+            topic: The research topic
+            domain: The research domain
+            
+        Returns:
+            Dictionary with research plan and token usage
+        """
+        prompt = f"""
+        You are KROD, an expert research assistant. Generate a comprehensive research plan
+        for the following topic in {domain}:
+        
+        TOPIC:
+        {topic}
+        
+        Include in your plan:
+        1. Research questions and objectives
+        2. Literature review strategy
+        3. Methodology and research design
+        4. Data collection and analysis methods
+        5. Timeline and milestones
+        6. Potential challenges and mitigation strategies
+        """
+        
+        response = self.llm_manager.generate_response(prompt)
+        return {
+            "plan": response.get("content", ""),
+            "token_usage": response.get("token_usage", 0)
+        }
