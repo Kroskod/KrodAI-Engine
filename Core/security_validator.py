@@ -125,7 +125,70 @@ class SecurityValidator:
                             f"Query matches restricted pattern: {pattern}"
                         ) # add warning for restricted pattern
 
-        # set security level and implications
+        # set security level and implications based on highest level
         response["security_level"] = highest_level
         level_implications = self.security_levels[highest_level]
         response.update(level_implications)
+
+        # add appropriate recommendations based on security level
+        if highest_level == "high":
+            response["recommendations"].extend([
+                "Consider consulting security experts",
+                "Review relevant security standards and compliance requirements",
+                "Ensure proper security auditing and testing",
+                "Implement additional security measures",
+                "Document all security-related decisions"
+            ])
+        elif highest_level == "medium":
+            response["recommendations"].extend([
+                "Follow security best practices",
+                "Consider security implications",
+                "Review implementation carefully",
+                "Test thoroughly before deployment"
+            ])
+        
+        # add matched topics and patterns to response for transparency
+        response["matched_topics"] = matched_topics
+        response["matched_patterns"] = matched_patterns
+        
+        return response
+    
+    def get_security_disclaimer(self, security_level: str) -> str:
+        """
+        Get appropriate security disclaimer based on security level.
+        
+        Args:
+            security_level: The security level (high, medium, low)
+            
+        Returns:
+            Appropriate disclaimer text
+        """
+        disclaimers = {
+            "high": """
+            SECURITY NOTICE: This response addresses sensitive security topics and is provided 
+            for educational purposes only. Any implementation of security protocols, encryption 
+            algorithms, or security-related code should:
+            1. Undergo thorough security auditing
+            2. Be reviewed by security experts
+            3. Comply with relevant security standards and regulations
+            4. Be tested extensively in a secure environment
+            5. Consider all potential security implications
+            
+            Do not use any security-related code in production without proper validation.
+            KROD's responses on security topics are for learning purposes only.
+            """,
+            
+            "medium": """
+            NOTICE: This response contains security-related information. While the content is not 
+            highly sensitive, please follow security best practices and consider potential security 
+            implications when implementing any suggestions. Ensure proper testing and validation
+            before using in any production environment.
+            """,
+            
+            "low": """
+            Follow standard development and testing practices when implementing any suggestions.
+            Consider security implications even for basic implementations.
+            """
+        }
+        
+        return disclaimers.get(security_level, disclaimers["low"])
