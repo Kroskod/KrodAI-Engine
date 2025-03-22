@@ -145,3 +145,96 @@ class LiteratureAnalyzer:
         # default to analysis if no clear task is identified
         return "analysis"
     
+    def extract_citations(self, query: str) -> List[str]:
+        """
+        Extract potential citations or references from the query.
+        
+        Args:
+            query: The user query
+            
+        Returns:
+            List of extracted citations
+        """
+        citations = []
+        # look for common citation patterns
+        # author (year) format
+        author_year = re.findall(r'([A-Z][a-z]+(?:\s+and\s+[A-Z][a-z]+)?\s+\(\d{4}\))', query)
+        citations.extend(author_year)
+        
+        # (Author, Year) format
+        author_year_paren = re.findall(r'\(([A-Z][a-z]+(?:,\s+(?:and\s+)?[A-Z][a-z]+)?,\s+\d{4})\)', query)
+        citations.extend(author_year_paren)
+        
+        # [1], [2,3], etc. format
+        numbered_refs = re.findall(r'\[([\d,\s]+)\]', query)
+        citations.extend(numbered_refs)
+        
+        return citations
+
+    def process(self, query: str, context: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Process a research-related query and generate a response.
+        
+        Args:
+            query: The user query
+            context: Optional conversation context
+            
+        Returns:
+            Dictionary containing the response and metadata
+        """
+        logger.info(f"Processing research query: {query[:50]}...")
+        
+        # Initialize response
+        response_data = {
+            "response": "",
+            "token_usage": 0,
+            "domain": "general",
+            "task": "analysis",
+            "citations_found": False
+        }
+
+        # extract citations
+        citations = self.extract_citations(query)
+        response_data["citations_found"] = len(citations) > 0
+        
+        # Identify research domain and task
+        domain, confidence = self.identify_research_domain(query)
+        task = self.identify_research_task(query)
+
+        # update response data
+        response_data["domain"] = domain
+        response_data["task"] = task
+        
+        # build prompt based on task and domain
+        prompt_template = self._build_prompt_template(task, domain)
+        
+        # format prompt with query and context
+        formatted_context = ""
+        if context:
+            # get the last 3 items from context for relevance
+            recent_context = context[-3:]
+            formatted_context = "\n\n".join([
+                f"User: {item.get('query', '')}\nKROD: {item.get('response', '')}"
+                for item in recent_context
+            ])
+        
+        # format citations for the prompt
+        citations_content = ""
+        if citations:
+            citations_content = "Citations found:\n"
+            for citation in citations:
+                citations_content += f"- {citation}\n"
+        
+        prompt = prompt_template.format(
+            query=query,
+            citations=citations_content,
+            context=formatted_context or "No previous conversation context."
+        )
+
+        # Generate response using the LLM
+        llm_response = self.llm_manager.generate_response(prompt)
+        
+        response_data["response"] = llm_response.get("content", "")
+        response_data["token_usage"] = llm_response.get("token_usage", 0)
+        
+        return response_data
