@@ -419,4 +419,3 @@ class MathSolver:
             "token_usage": response.get("token_usage", 0)
         }
     
-    
