@@ -238,3 +238,146 @@ class LiteratureAnalyzer:
         response_data["token_usage"] = llm_response.get("token_usage", 0)
         
         return response_data
+    
+    def _build_prompt_template(self, task: str, domain: str) -> str:
+        """
+        Build a task-specific prompt template for research queries.
+        
+        Args:
+            task: The identified research task
+            domain: The identified research domain
+            
+        Returns:
+            A prompt template string
+        """
+        # base template for the prompt
+        base_template = """
+        You are KROD, an expert research assistant with deep knowledge of academic research,
+        scientific methodology, and literature analysis across multiple disciplines.
+        
+        USER QUERY:
+        {query}
+        
+        PREVIOUS CONVERSATION:
+        {context}
+        
+        {citations}
+        """
+        
+        # add task-specific instructions xw
+        task_instructions = {
+            "literature_review": f"""
+            Provide a comprehensive analysis of the literature in {domain}. Focus on:
+            
+            1. Current state of research in this area
+            2. Key findings and contributions
+            3. Major debates or controversies
+            4. Research gaps and future directions
+            5. Methodological approaches used
+            
+            Synthesize the information to give a clear overview of the field.
+            """,
+            
+            "methodology": f"""
+            Explain or analyze the research methodology for this {domain} study. Address:
+            
+            1. Research design and approach
+            2. Data collection methods
+            3. Analysis techniques
+            4. Validity and reliability considerations
+            5. Potential limitations and mitigation strategies
+            
+            Provide specific recommendations based on best practices in {domain}.
+            """,
+            
+            "hypothesis": f"""
+            Help formulate or analyze research hypotheses in {domain}. Consider:
+            
+            1. Theoretical foundation
+            2. Variables and relationships
+            3. Testability and falsifiability
+            4. Alignment with existing literature
+            5. Potential implications
+            
+            Ensure the hypotheses are well-grounded in {domain} theory and practice.
+            """,
+            
+            "analysis": f"""
+            Analyze the research problem or findings in {domain}. Focus on:
+            
+            1. Critical evaluation of the evidence
+            2. Methodological strengths and weaknesses
+            3. Theoretical implications
+            4. Practical applications
+            5. Future research directions
+            
+            Provide a balanced and thorough analysis based on {domain} principles.
+            """,
+            
+            "writing": f"""
+            Provide guidance on academic writing in {domain}. Address:
+            
+            1. Structure and organization
+            2. Academic style and tone
+            3. Citation and referencing
+            4. Argument development
+            5. Common pitfalls to avoid
+            
+            Follow standard conventions for academic writing in {domain}.
+            """
+        }
+
+        # get domain-specific guidance
+        domain_guidance = ""
+        if domain != "general":
+            domain_guidance = f"""
+            This query relates to {domain}. Apply appropriate theoretical frameworks,
+            methodologies, and terminology specific to this field. Consider the current
+            state of research and standard practices in {domain}.
+            """
+
+        # combine all parts for the prompt
+        template = base_template + task_instructions.get(task, "") + domain_guidance + """
+        
+        Provide a clear, well-structured response that demonstrates expertise in the field.
+        Include relevant citations and examples where appropriate. Maintain academic rigor
+        while ensuring accessibility of the explanation.
+        """
+        
+        return template
+    
+    def _analyze_paper(self, paper_content: str, domain: str) -> Dict[str, Any]:
+        """
+        Analyze a research paper or article.
+        
+        Args:
+            paper_content: The content of the paper
+            domain: The research domain
+            
+        Returns:
+            Dictionary with analysis and token usage
+        """
+        prompt = f"""
+        You are KROD, an expert research assistant. Analyze the following research paper
+        from {domain}, providing a comprehensive review of its content, methodology,
+        and contributions.
+        
+        PAPER CONTENT:
+        {paper_content}
+        
+        Provide an analysis covering:
+        1. Research objectives and questions
+        2. Methodology and approach
+        3. Key findings and results
+        4. Theoretical and practical implications
+        5. Strengths and limitations
+        6. Future research directions
+        """
+        
+        response = self.llm_manager.generate_response(prompt)
+        return {
+            "analysis": response.get("content", ""),
+            "token_usage": response.get("token_usage", 0)
+        }
+    
+    
