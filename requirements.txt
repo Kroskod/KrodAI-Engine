@@ -13,8 +13,6 @@ pandas>=2.0.0
 rich>=13.3.0
 prompt_toolkit>=3.0.36
 
-# Logging and debugging
-logging>=0.5.1.2
 
 # Development dependencies (optional)
 pytest>=7.3.1
