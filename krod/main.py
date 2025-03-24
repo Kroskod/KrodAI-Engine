@@ -11,9 +11,9 @@ import logging
 import argparse
 from typing import Dict, Any
 from dotenv import load_dotenv
-from interfaces.cli import KrodCLI
-from core.config import load_config, DEFAULT_CONFIG
-from core.engine import KrodEngine
+from krod.interfaces.cli import KrodCLI
+from krod.core.config import load_config, DEFAULT_CONFIG
+from krod.core.engine import KrodEngine
 
 def setup_logging(config: Dict[str, Any]) -> None:
     """
