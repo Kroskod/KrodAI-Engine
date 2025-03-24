@@ -17,7 +17,7 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
     requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
 
 setup(
-    name="KrodAI",
+    name="krodai",
     version="0.1.0",
     author="Sarthak Sharma",
     author_email="sarthak@kroskod.com",
@@ -43,7 +43,7 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "krod=main:main",
+            "krod=krod.main:main",
         ],
     },
     include_package_data=True,
