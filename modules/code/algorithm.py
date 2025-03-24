@@ -131,3 +131,34 @@ class AlgorithmAnalyzer:
             "suggestions": result.get("content", ""),
             "token_usage": result.get("token_usage", 0)
         }
+    
+    def process(self, query: str, code: str, language: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Process an algorithm-related query.
+        
+        Args:
+            query: The user's query
+            code: The algorithm code
+            language: Optional programming language
+            
+        Returns:
+            Analysis results
+        """
+        # Identify patterns first
+        patterns = self.identify_patterns(code)
+        
+        # Analyze complexity
+        complexity_analysis = self.analyze_complexity(code, language)
+        
+        # Get optimization suggestions
+        optimizations = self.suggest_optimizations(code, patterns)
+        
+        return {
+            "patterns": patterns,
+            "complexity": complexity_analysis.get("analysis", ""),
+            "optimizations": optimizations.get("suggestions", ""),
+            "token_usage": (
+                complexity_analysis.get("token_usage", 0) +
+                optimizations.get("token_usage", 0)
+            )
+        }
