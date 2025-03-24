@@ -444,6 +444,53 @@ class KrodCLI(cmd.Cmd):
             
         else:
             print("Unknown config command. Type 'help config' for usage.")
+    
+    def do_about(self, arg):
+        """
+        Display information about KROD and its capabilities.
+        
+        Usage:
+          about             - Show full description
+          about capabilities - Show capabilities
+          about features    - Show special features
+          about principles  - Show guiding principles
+        """
+        if not hasattr(self.engine, 'identity'):
+            print("Identity information not available.")
+            return
+        
+        arg = arg.strip().lower()
+        
+        if arg == "capabilities":
+            print(self.engine.identity.get_capabilities())
+        elif arg == "features":
+            print(self.engine.identity.get_features())
+        elif arg == "principles":
+            print(self.engine.identity.get_principles())
+        else:
+            print(self.engine.identity.get_full_description())
+    
+    def do_model(self, arg):
+        """
+        Display information about KROD's model and capabilities.
+        
+        Usage:
+          model             - Show all model information
+          model limitations - Show model limitations
+          model ethics     - Show ethical guidelines
+        """
+        if not hasattr(self.engine, 'identity'):
+            print("Model information not available.")
+            return
+        
+        arg = arg.strip().lower()
+        
+        if arg == "limitations":
+            print(self.engine.identity.get_model_info("limitations"))
+        elif arg == "ethics":
+            print(self.engine.identity.get_model_info("ethics"))
+        else:
+            print(self.engine.identity.get_model_info())
 
 
 def main():

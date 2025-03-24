@@ -19,7 +19,7 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
 setup(
     name="KrodAI",
     version="0.1.0",
-    author="Sarthak",
+    author="Sarthak Sharma",
     author_email="sarthak@kroskod.com",
     description="KrodAI - Knowledge-Reinforced Operational Developer",
     long_description=long_description,
