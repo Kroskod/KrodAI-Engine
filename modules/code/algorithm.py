@@ -162,3 +162,4 @@ class AlgorithmAnalyzer:
                 optimizations.get("token_usage", 0)
             )
         }
+
