@@ -114,11 +114,11 @@ def display_welcome_message() -> None:
     ║                                                         ║
     ║   Krod - Knowledge-Reinforced Operational Developer     ║
     ║                                                         ║
-    ║   Version: 0.1.0                                       ║
-    ║   Mode: CLI                                            ║
+    ║   Version: 0.1.0                                        ║
+    ║   Mode: CLI                                             ║
     ║                                                         ║
-    ║   Type 'help' for a list of commands                   ║
-    ║   Type 'quit' to exit                                  ║
+    ║   Type 'help' for a list of commands                    ║
+    ║   Type 'quit' to exit                                   ║
     ║                                                         ║
     ╚═════════════════════════════════════════════════════════╝
     """
