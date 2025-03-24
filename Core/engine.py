@@ -23,6 +23,10 @@ from modules.research.literature import LiteratureAnalyzer
 # security validator
 from .security_validator import SecurityValidator
 
+# Add to imports at the top
+from .identity import KrodIdentity
+from modules.code.algorithm import AlgorithmAnalyzer
+
 logger = logging.getLogger(__name__)
 
 class KrodEngine:
@@ -59,8 +63,12 @@ class KrodEngine:
         self.clarification_system = ClarificationSystem(self.llm_manager, self.config.get("clarification", {}))
         self.common_sense_system = CommonSenseSystem(self.config.get("common_sense", {}))
         
+        # Initialize identity
+        self.identity = KrodIdentity()
+        
         # Initialize domain-specific modules with LLM manager
         self.code_analyzer = CodeAnalyzer(self.llm_manager)
+        self.algorithm_analyzer = AlgorithmAnalyzer(self.llm_manager)
         self.math_solver = MathSolver(self.llm_manager)
         self.literature_analyzer = LiteratureAnalyzer(self.llm_manager)
 
@@ -98,7 +106,8 @@ class KrodEngine:
         modules["code"] = {
             "analyze": self.code_analyzer.process,
             "optimize": self._optimize_code,
-            "generate": self._generate_code
+            "generate": self._generate_code,
+            "algorithm": self.algorithm_analyzer.process
         }
         
         modules["math"] = {
@@ -184,6 +193,48 @@ class KrodEngine:
                 response_data["needs_clarification"] = True
                 response_data["domain"] = "clarification"
                 return response_data
+        
+        query_lower = query.lower()
+        
+        # Identity and capability queries
+        identity_keywords = [
+            "who are you", "what are you", "what can you do",
+            "your capabilities", "tell me about yourself", "what is krod"
+        ]
+        
+        # Model implementation queries
+        model_implementation_keywords = [
+            "what model", "which model", "what llm", "what language model",
+            "powered by", "based on", "underlying model"
+        ]
+        
+        # Feature and limitation queries
+        feature_keywords = [
+            "what are your limitations", "what can't you do",
+            "your restrictions", "your constraints",
+            "your features", "what can you do"
+        ]
+        
+        if any(keyword in query_lower for keyword in identity_keywords):
+            response_data["response"] = self.identity.get_full_description()
+            response_data["domain"] = "identity"
+            return response_data
+        
+        if any(keyword in query_lower for keyword in model_implementation_keywords):
+            # Redirect model implementation questions to KROD's identity
+            response_data["response"] = self.identity.handle_model_query(query)
+            response_data["domain"] = "identity"
+            return response_data
+        
+        if any(keyword in query_lower for keyword in feature_keywords):
+            if any(limit in query_lower for limit in ["limitation", "can't", "cannot", "restricted"]):
+                response_data["response"] = self.identity.get_model_info("limitations")
+            elif any(ethic in query_lower for ethic in ["ethic", "guideline", "principle"]):
+                response_data["response"] = self.identity.get_model_info("ethics")
+            else:
+                response_data["response"] = self.identity.get_model_info()
+            response_data["domain"] = "capabilities"
+            return response_data
         
         # Analyze the query to determine the domain and required capabilities
         domain, capabilities = self._analyze_query(query)
