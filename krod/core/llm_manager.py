@@ -98,6 +98,10 @@ class LLMManager:
         """
         # Default templates
         templates = {
+            "general": {
+                "chat": "You are KROD, an AI research assistant. Respond naturally and conversationally to the following message:\n\n{input}",
+                "greeting": "You are KROD, an AI research assistant. Respond warmly and naturally to this greeting:\n\n{input}"
+            },
             "code": {
                 "analyze": "Analyze the following code or algorithm:\n\n{input}\n\nProvide insights on time complexity, space complexity, and potential optimizations.",
                 "optimize": "Optimize the following code:\n\n{input}\n\nFocus on improving {focus} while maintaining readability.",
@@ -194,12 +198,24 @@ class LLMManager:
         start_time = time.time()
         
         try:
+            # Determine if this is a general conversation query
+            is_greeting = any(word in prompt.lower() for word in ["hello", "hi", "hey", "greetings"])
+            if is_greeting:
+                formatted_prompt = self.get_prompt("general", "greeting", prompt)
+            else:
+                # Check if the prompt contains code-specific keywords
+                has_code_keywords = any(word in prompt.lower() for word in ["code", "program", "function", "class", "algorithm", "implementation"])
+                if has_code_keywords:
+                    formatted_prompt = self.get_prompt("code", "analyze", prompt)
+                else:
+                    formatted_prompt = self.get_prompt("general", "chat", prompt)
+            
             if provider == "openai":
-                response = self._generate_openai(prompt, model, temperature, max_tokens)
+                response = self._generate_openai(formatted_prompt, model, temperature, max_tokens)
             elif provider == "anthropic":
-                response = self._generate_anthropic(prompt, model, temperature, max_tokens)
+                response = self._generate_anthropic(formatted_prompt, model, temperature, max_tokens)
             elif provider == "cohere":
-                response = self._generate_cohere(prompt, model, temperature, max_tokens)
+                response = self._generate_cohere(formatted_prompt, model, temperature, max_tokens)
             else:
                 raise ValueError(f"Unsupported provider: {provider}")
             
@@ -238,9 +254,9 @@ class LLMManager:
                 }
             }
     
-    def _generate_claude(self, prompt: str, model: str, temperature: float, max_tokens: int) -> str:
+    def _generate_openai(self, prompt: str, model: str, temperature: float, max_tokens: int) -> str:
         """
-        Generate a response using claude's API.
+        Generate a response using OpenAI's API.
         
         Args:
             prompt: The prompt to send

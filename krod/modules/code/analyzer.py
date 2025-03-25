@@ -244,10 +244,10 @@ class CodeAnalyzer:
         )
         
         # Generate response using the LLM
-        llm_response = self.llm_manager.generate_response(prompt)
+        llm_response = self.llm_manager.generate(prompt)
         
-        response_data["response"] = llm_response.get("content", "")
-        response_data["token_usage"] = llm_response.get("token_usage", 0)
+        response_data["response"] = llm_response.get("text", "")
+        response_data["token_usage"] = llm_response.get("metadata", {}).get("response_length", 0)
         
         return response_data
     

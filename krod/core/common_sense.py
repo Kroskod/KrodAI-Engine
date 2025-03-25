@@ -30,7 +30,7 @@ class CommonSenseSystem:
         
         self.logger.info("Common Sense system initialized")
     
-    def apply_common_sense(self, query: str, domain: str) -> Dict[str, Any]:
+    def apply_common_sense(self, query: str, domain: str = "general") -> Dict[str, Any]:
         """
         Apply common sense to determine the appropriate response approach.
         
