@@ -6,26 +6,25 @@ import logging
 from typing import Dict, Any, List, Optional
 import importlib
 import pkgutil
-from .llm_manager import LLMManager
-from .research_context import ResearchContext
-from .knowledge_graph import KnowledgeGraph
-from .reasoning import ReasoningSystem
-from .clarification import ClarificationSystem
-from .common_sense import CommonSenseSystem
-from .token_manager import TokenManager
-from .config import KrodConfig
+
+from krod.core.llm_manager import LLMManager
+from krod.core.research_context import ResearchContext
+from krod.core.knowledge_graph import KnowledgeGraph
+from krod.core.reasoning import ReasoningSystem
+from krod.core.clarification import ClarificationSystem
+from krod.core.common_sense import CommonSenseSystem
+from krod.core.token_manager import TokenManager
+from krod.core.security_validator import SecurityValidator
+from krod.core.identity import KrodIdentity
 
 # Domain specific modules
-from modules.code.analyzer import CodeAnalyzer
-from modules.math.solver import MathSolver
-from modules.research.literature import LiteratureAnalyzer
+from krod.modules.code.analyzer import CodeAnalyzer
+from krod.modules.code.algorithm import AlgorithmAnalyzer
+from krod.modules.math.solver import MathSolver
+from krod.modules.research.literature import LiteratureAnalyzer
 
 # security validator
 from .security_validator import SecurityValidator
-
-# Add to imports at the top
-from .identity import KrodIdentity
-from modules.code.algorithm import AlgorithmAnalyzer
 
 logger = logging.getLogger(__name__)
 
