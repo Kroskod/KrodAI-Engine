@@ -139,18 +139,31 @@ class KrodEngine:
         """
         self.logger.info("Processing query: %s", query)
         
-        # Perform security validation first
-        security_check = self.security_validator.validate_query(query)
+        try: 
+            # Perform security validation first
+            security_check = self.security_validator.validate_query(query)
+            
+            # Initialize response with security information
+            response_data = {
+                "response": "",
+                "context_id": None,
+                "domain": "general",
+                "security_level": security_check["security_level"],
+                "security_warnings": security_check["warnings"],
+                "security_recommendations": security_check["recommendations"]
+            }
+    
+
+            # Analyze the query to determine the domain and required capabilities
+            domain, capabilities = self._analyze_query(query)
+            response_data["domain"] = domain  # Set the domain before common sense check
         
-        # Initialize response with security information
-        response_data = {
-            "response": "",
-            "context_id": None,
-            "domain": "general",
-            "security_level": security_check["security_level"],
-            "security_warnings": security_check["warnings"],
-            "security_recommendations": security_check["recommendations"]
-        }
+        except Exception as e:
+            self.logger.error(f"Error during initial processing: {str(e)}")
+            return {
+                "response": "An error occurred while processing your query. Please try again.",
+                "error": str(e)
+            }
         
         # If query is restricted, return security notice
         if security_check["restricted"]:
@@ -175,8 +188,9 @@ class KrodEngine:
             if hasattr(context, 'add_query'):
                 context.add_query(query)
         
-        # Apply common sense to determine approach
-        common_sense = self.common_sense_system.apply_common_sense(query)
+        
+        # Apply common sense to determine approach - pass the domain
+        common_sense = self.common_sense_system.apply_common_sense(query, domain)
         
         # Check if clarification is needed
         if common_sense.get("seek_clarification", False):
@@ -237,9 +251,6 @@ class KrodEngine:
                 response_data["response"] = self.identity.get_model_info()
             response_data["domain"] = "capabilities"
             return response_data
-        
-        # Analyze the query to determine the domain and required capabilities
-        domain, capabilities = self._analyze_query(query)
         
         # Apply reasoning if appropriate
         final_response = None

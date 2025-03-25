@@ -74,10 +74,10 @@ class AlgorithmAnalyzer:
         5. Key factors affecting performance
         """
         
-        result = self.llm_manager.generate_response(prompt)
+        result = self.llm_manager.generate(prompt)
         return {
-            "analysis": result.get("content", ""),
-            "token_usage": result.get("token_usage", 0)
+            "analysis": result.get("text", ""),
+            "token_usage": result.get("metadata", {}).get("response_length", 0)
         }
     
     def identify_patterns(self, code: str) -> List[str]:
@@ -126,10 +126,10 @@ class AlgorithmAnalyzer:
         5. Implementation efficiency
         """
         
-        result = self.llm_manager.generate_response(prompt)
+        result = self.llm_manager.generate(prompt)
         return {
-            "suggestions": result.get("content", ""),
-            "token_usage": result.get("token_usage", 0)
+            "suggestions": result.get("text", ""),
+            "token_usage": result.get("metadata", {}).get("response_length", 0)
         }
     
     def process(self, query: str, code: str, language: Optional[str] = None) -> Dict[str, Any]:
