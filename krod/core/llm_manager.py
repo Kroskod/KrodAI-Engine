@@ -51,7 +51,7 @@ class LLMManager:
         api_keys = {}
         
         # Try to get from environment variables
-        for provider in ["openai", "anthropic", "cohere",]:
+        for provider in ["openai", "anthropic", "cohere", "deepseek", "gemini"]:
             env_var = f"{provider.upper()}_API_KEY"
             if env_var in os.environ:
                 api_keys[provider] = os.environ[env_var]
