@@ -131,7 +131,7 @@ def check_requirements() -> bool:
     Returns:
         Boolean indicating if requirements are met
     """
-    required_env_vars = ["ANTHROPIC_API_KEY"]
+    required_env_vars = ["OPENAI_API_KEY"] # "ANTHROPIC_API_KEY"
     
     missing_vars = [var for var in required_env_vars if not os.getenv(var)]
     
