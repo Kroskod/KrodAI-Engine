@@ -157,9 +157,6 @@ def main() -> None:
         # Initialize KROD
         config = initialize_krod(args)
         
-        # Display welcome message
-        display_welcome_message()
-        
         if args.query:
             # Process single query mode
             engine = KrodEngine(config)
@@ -174,12 +171,8 @@ def main() -> None:
             
             # Set session if specified
             if args.session:
-                session = cli.engine.research_context.get(args.session)
-                if session:
-                    cli.current_session_id = args.session
-                    print(f"Using session: {args.session}")
-                else:
-                    print(f"Warning: Session not found: {args.session}")
+                cli.current_session_id = args.session
+                print(f"Using session: {args.session}")
             
             # Start CLI loop
             try:
