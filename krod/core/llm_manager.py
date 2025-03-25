@@ -27,6 +27,33 @@ class LLMManager:
         """
         self.logger = logging.getLogger("krod.llm_manager")
         self.config = config or {}
+        
+        # Default OpenAI configuration
+        self.default_config = {
+            "default_provider": "openai",
+            "default_model": "gpt-4",
+            "models": {
+                "gpt-4": {
+                    "max_tokens": 8192,
+                    "temperature": 0.7,
+                    "top_p": 1.0,
+                    "frequency_penalty": 0.0,
+                    "presence_penalty": 0.0
+                },
+                "gpt-3.5-turbo": {
+                    "max_tokens": 4096,
+                    "temperature": 0.7,
+                    "top_p": 1.0,
+                    "frequency_penalty": 0.0,
+                    "presence_penalty": 0.0
+                }
+            }
+        }
+        
+        # Update config with defaults
+        self.config = {**self.default_config, **self.config}
+        
+        # Initialize token manager with model-specific limits
         self.token_manager = TokenManager(self.config.get("token_management", {}))
         
         # Load API keys from environment or config
