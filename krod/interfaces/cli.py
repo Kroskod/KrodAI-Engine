@@ -5,14 +5,16 @@ KROD CLI - Command Line Interface for the KROD AI research assistant.
 import os
 import sys
 import cmd
-import json
 import logging
+from typing import Dict, Any, Optional
+from rich import print
+from rich.console import Console
+from rich.panel import Panel
+from krod.core.engine import KrodEngine
+from krod.core.config import load_config
 import argparse
-from typing import Dict, Any, List, Optional
+import json
 import readline
-
-from ..core.engine import KrodEngine
-from ..core.config import load_config
 
 class KrodCLI(cmd.Cmd):
     """
@@ -25,36 +27,36 @@ class KrodCLI(cmd.Cmd):
     intro = """
     ╔═════════════════════════════════════════════════════════╗
     ║                                                         ║
-    ║   Krod - Knowledge-Reinforced Operational Developer     ║
+    ║   KROD - Knowledge-Reinforced Operational Developer     ║
     ║                                                         ║
-    ║   An AI research assistant for complex problem solving  ║
     ║                                                         ║
+    ║   Version: 0.1.0                                        ║
     ║   Type 'help' for a list of commands                    ║
     ║   Type 'quit' to exit                                   ║
     ║                                                         ║
     ╚═════════════════════════════════════════════════════════╝
     """
     
-    prompt = "Krod> "
+    prompt = "krod> "
     
-    def __init__(self, config: Dict[str, Any] = None):
-        """
-        Initialize the KROD CLI.
+    def __init__(self, config: Dict[str, Any]):
+        """Initialize the CLI."""
+        # Initialize cmd.Cmd without super() to avoid readline issues
+        cmd.Cmd.__init__(self)
         
-        Args:
-            config: Configuration dictionary
-        """
-        super().__init__()
-        self.logger = logging.getLogger("krod.cli")
+        self.config = config
+        self.console = Console()
+        self.current_session_id = None
+        self.history = []
         
-        # Load configuration
-        self.config = config or load_config()
-        
-        # Initialize the KROD engine
-        self.engine = KrodEngine(self.config)
+        try:
+            self.engine = KrodEngine(self.config)
+            self.logger = logging.getLogger("krod.cli")
+        except Exception as e:
+            print(f"Error initializing KROD engine: {str(e)}")
+            sys.exit(1)
         
         # Set up session state
-        self.current_session_id = None
         self.last_response = None
         
         # Set up history file
@@ -83,30 +85,43 @@ class KrodCLI(cmd.Cmd):
         except Exception as e:
             self.logger.warning(f"Failed to save history: {str(e)}")
     
-    def emptyline(self):
-        """Do nothing on empty line."""
-        pass
+    def cmdloop(self, intro=None):
+        """Override cmdloop to handle keyboard interrupts."""
+        while True:
+            try:
+                super().cmdloop(intro)
+                break
+            except KeyboardInterrupt:
+                print("\nPress Ctrl+D or type 'quit' to exit")
+            except Exception as e:
+                print(f"Error: {str(e)}")
+                self.logger.error(f"CLI error: {str(e)}", exc_info=True)
+            intro = None
     
-    def default(self, line: str):
-        """
-        Process input as a query to KROD if not a command.
-        
-        Args:
-            line: The user input
-        """
+    def default(self, line: str) -> bool:
+        """Handle unknown commands as queries."""
         if line.strip():
-            self._process_query(line)
+            self.do_query(line)
+        return False
     
-    def _process_query(self, query: str):
-        """
-        Process a query and display the response.
-        
-        Args:
-            query: The query to process
-        """
+    def do_query(self, arg: str) -> None:
+        """Process a query through KROD."""
         try:
-            # Process the query
-            result = self.engine.process(query, self.current_session_id)
+            result = self.engine.process(arg, self.current_session_id)
+            
+            # Display response in a nice panel
+            self.console.print(Panel(
+                result["response"],
+                title="KROD Response",
+                border_style="blue"
+            ))
+            
+            # Show token usage if available
+            if "token_usage" in result:
+                print(f"\nToken usage: {result['token_usage']}")
+            
+            # Add to history
+            self.history.append({"query": arg, "response": result})
             
             # Update session ID if needed
             if "context_id" in result:
@@ -115,32 +130,18 @@ class KrodCLI(cmd.Cmd):
             # Store the last response
             self.last_response = result
             
-            # Print the response
-            if "response" in result:
-                print(f"\n{result['response']}\n")
-            else:
-                print("\nNo response from KROD.\n")
-                
-            # Print domain and capabilities if in debug mode
-            if self.config.get("debug", False):
-                if "domain" in result:
-                    print(f"Domain: {result['domain']}")
-                if "capabilities" in result:
-                    print(f"Capabilities: {', '.join(result.get('capabilities', []))}")
-                print()
-                
         except Exception as e:
-            self.logger.error(f"Error processing query: {str(e)}")
-            print(f"\nError: {str(e)}\n")
+            print(f"Error processing query: {str(e)}")
+            self.logger.error(f"Query error: {str(e)}", exc_info=True)
     
-    def do_quit(self, arg):
-        """Exit the KROD CLI."""
-        print("Goodbye! Thank you for using KROD.")
+    def do_quit(self, arg: str) -> bool:
+        """Exit KROD."""
+        print("\nThank you for using KROD. Goodbye!")
         self._save_history()
         return True
     
-    def do_exit(self, arg):
-        """Exit the KROD CLI."""
+    def do_EOF(self, arg: str) -> bool:
+        """Handle EOF (Ctrl+D)."""
         return self.do_quit(arg)
     
     def do_session(self, arg):

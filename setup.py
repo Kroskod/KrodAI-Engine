@@ -40,7 +40,18 @@ setup(
         "Topic :: Software Development :: Libraries :: Python Modules",
     ],
     python_requires=">=3.8",
-    install_requires=requirements,
+    install_requires=[
+        "openai",
+        "python-dotenv",
+        "pyyaml",
+        "cmd2",
+        "requests",
+        "numpy",
+        "rich",
+        "prompt_toolkit",
+        "networkx",
+        "pandas"
+    ],
     entry_points={
         "console_scripts": [
             "krod=krod.main:main",
