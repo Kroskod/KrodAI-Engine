@@ -51,11 +51,14 @@ class KrodEngine:
         self.knowledge_graph = self._initialize_knowledge_graph()
         self.llm_manager = self._initialize_llm_manager()
         
-        # Initialize token manager
-        self.token_manager = TokenManager(
-            daily_limit=self.config.get("api.daily_token_limit", 100000),
-            rate_limit=self.config.get("api.rate_limit", 10)
-        )
+        # Initialize token manager with config
+        token_config = {
+            "token_management": {
+                "daily_token_limit": self.config.get("api.daily_token_limit", 100000),
+                "rate_limit": self.config.get("api.rate_limit", 10)
+            }
+        }
+        self.token_manager = TokenManager(token_config)
         
         # Initialize reasoning systems
         self.reasoning_system = ReasoningSystem(self.llm_manager, self.config.get("reasoning", {}))
