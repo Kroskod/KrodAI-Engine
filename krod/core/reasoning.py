@@ -166,7 +166,6 @@ Ensure your reasoning is transparent and your conclusion is well-supported.
         # Generate reasoning with slightly higher temperature for exploratory thinking
         result = self.llm_manager.generate(
             prompt,
-            model_type="base",  # Use base model for reasoning
             temperature=self.reasoning_temperature,
             max_tokens=self.max_reasoning_tokens
         )
@@ -195,7 +194,6 @@ Internal Reasoning: {reasoning}
         # Generate the final response
         result = self.llm_manager.generate(
             prompt,
-            model_type=domain,  # Use domain-specific model if available
             temperature=0.5,  # Lower temperature for more focused response
             max_tokens=1500
         )
