@@ -34,7 +34,7 @@ class VectorStore:
 
         self.logger.info("VectorStore initialized with model: %s", self.model_name)
 
-    def add_documents(self, text: str, metadata: Dict[str, Any] = None) -> str:
+    def add_document(self, text: str, metadata: Dict[str, Any] = None) -> str:
         """
         Add documents to the vector store.
 
@@ -60,7 +60,38 @@ class VectorStore:
 
         return doc_id
     
+    def search(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+        """ Search for similar documents.
+        
+        Args: 
+            query: Query to search for
+            top_k: Number of results to return
 
-        
-        
-        
+        Returns:
+            List of similar documents and their scores
+        """
+
+        # generate query embedding
+        query_embedding = self.embedding_model.encode(query)
+
+        # compute similarities between query and all stored embeddings
+        similarities = {}
+        for doc_id, doc_embedding in self.embeddings.items():
+            similarity = np.dot(query_embedding, doc_embedding)
+            similarities[doc_id] = similarity
+
+        # get top k results
+        top_results = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:top_k]
+
+        # format results
+        results = []
+        for doc_id, score in top_results:
+            doc = self.documents[doc_id]
+            results.append({
+                "id": doc_id,
+                "text": doc["text"],
+                "metadata": doc["metadata"],
+                "similarity": score
+            })
+
+        return results
