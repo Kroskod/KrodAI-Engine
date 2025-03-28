@@ -34,5 +34,33 @@ class VectorStore:
 
         self.logger.info("VectorStore initialized with model: %s", self.model_name)
 
+    def add_documents(self, text: str, metadata: Dict[str, Any] = None) -> str:
+        """
+        Add documents to the vector store.
 
+        Args:
+            text: Text to add to the vector store
+            metadata: optional metadata about the document
 
+        Returns:
+            Document ID
+        """
+        # generate document id 
+        doc_id = f"doc_{len(self.documents)}"
+
+        # store the document and metadata
+        self.documents[doc_id] = {
+            "text": text,
+            "metadata": metadata or {}
+        }
+
+        # embed the document and generate 
+        embedding = self.embedding_model.encode(text)
+        self.embeddings[doc_id] = embedding
+
+        return doc_id
+    
+
+        
+        
+        
