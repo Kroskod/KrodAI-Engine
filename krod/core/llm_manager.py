@@ -158,10 +158,12 @@ class LLMManager:
     
     def generate(self, 
                 prompt: str, 
+                
                 provider: Optional[str] = None, 
                 model: Optional[str] = None,
                 temperature: float = 0.7,
-                max_tokens: int = 1000) -> Dict[str, Any]:
+                max_tokens: int = 1000
+                **kwargs) -> Dict[str, Any]:
         """
         Generate a response from an LLM.
         
@@ -171,6 +173,7 @@ class LLMManager:
             model: The specific model to use (default from config)
             temperature: Creativity parameter (0.0 to 1.0)
             max_tokens: Maximum tokens in the response
+            
             
         Returns:
             Dictionary containing the response and metadata
@@ -234,7 +237,23 @@ class LLMManager:
                     "processing_time": time.time() - start_time
                 }
             }
-            
+
+            # get relevent documents from vector store
+            relevent_docs = self.vector_store.search(prompt, top_k=3)
+
+            # add context to the prompt
+            context = "\n\n".join(doc["text"] for doc in relevent_docs)
+            augmented_prompt = f"""Context information:
+            {context}
+
+            User query:
+            {prompt}
+
+            Please use the context information above if relevant to answer the following query.
+            """
+            # generate response using augmented prompt
+            return super().generate(augmented_prompt, **kwargs)
+
             # Cache the result if enabled
             if self.cache_enabled:
                 self.cache[cache_key] = result
