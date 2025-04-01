@@ -44,24 +44,40 @@ class VectorStore:
 
         Returns:
             Document ID
+        
+        Raises:
+            ValueError: If text is empty or invalid
+            RuntimeError: If embedding fails
         """
-        # generate document id 
-        doc_id = f"doc_{len(self.documents)}"
+        # Input validation
+        if not text or not isinstance(text, str):
+            raise ValueError("Text must be a non-empty string")
+        
+        if metadata is not None and not isinstance(metadata, dict):
+            raise ValueError("Metadata must be a dictionary")
 
-        # store the document and metadata
-        self.documents[doc_id] = {
-            "text": text,
-            "metadata": metadata or {}
-        }
+        try:
+            # generate document id 
+            doc_id = f"doc_{len(self.documents)}"
 
-        # embed the document and generate 
-        embedding = self.embedding_model.encode(text)
-        self.embeddings[doc_id] = embedding
+            # store the document and metadata
+            self.documents[doc_id] = {
+                "text": text,
+                "metadata": metadata or {}
+            }
 
-        return doc_id
+            # embed the document and generate 
+            embedding = self.embedding_model.encode(text)
+            self.embeddings[doc_id] = embedding
+
+            return doc_id
+        except Exception as e:
+            self.logger.error(f"Failed to add document: {str(e)}")
+            raise RuntimeError(f"Failed to add document: {str(e)}")
     
     def search(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
-        """ Search for similar documents.
+        """
+        Search for similar documents.
         
         Args: 
             query: Query to search for
@@ -69,29 +85,53 @@ class VectorStore:
 
         Returns:
             List of similar documents and their scores
+        
+        Raises:
+            ValueError: If query is invalid or store is empty
+            RuntimeError: If search operation fails
         """
+        # Input validation
+        if not query or not isinstance(query, str):
+            raise ValueError("Query must be a non-empty string")
+        
+        if top_k < 1:
+            raise ValueError("top_k must be a positive integer")
 
-        # generate query embedding
-        query_embedding = self.embedding_model.encode(query)
+        # Check if store is empty
+        if not self.documents:
+            self.logger.warning("Vector store is empty")
+            return []
 
-        # compute similarities between query and all stored embeddings
-        similarities = {}
-        for doc_id, doc_embedding in self.embeddings.items():
-            similarity = np.dot(query_embedding, doc_embedding)
-            similarities[doc_id] = similarity
+        try:
+            # generate query embedding
+            query_embedding = self.embedding_model.encode(query)
+            
+            # normalize query embedding
+            query_embedding = query_embedding / np.linalg.norm(query_embedding)
+            
+            # compute similarities with normalized vectors
+            similarities = {}
+            for doc_id, doc_embedding in self.embeddings.items():
+                # normalize document embedding
+                doc_embedding = doc_embedding / np.linalg.norm(doc_embedding)
+                similarity = np.dot(query_embedding, doc_embedding)
+                similarities[doc_id] = similarity
 
-        # get top k results
-        top_results = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:top_k]
+            # get top k results
+            top_results = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:top_k]
 
-        # format results
-        results = []
-        for doc_id, score in top_results:
-            doc = self.documents[doc_id]
-            results.append({
-                "id": doc_id,
-                "text": doc["text"],
-                "metadata": doc["metadata"],
-                "similarity": score
-            })
+            # format results
+            results = []
+            for doc_id, score in top_results:
+                doc = self.documents[doc_id]
+                results.append({
+                    "id": doc_id,
+                    "text": doc["text"],
+                    "metadata": doc["metadata"],
+                    "similarity": score
+                })
 
-        return results
+            return results
+        except Exception as e:
+            self.logger.error(f"Search operation failed: {str(e)}")
+            raise RuntimeError(f"Search operation failed: {str(e)}")

@@ -9,6 +9,7 @@ import os
 from typing import Dict, Any, List, Optional, Union
 import requests
 from .token_manager import TokenManager
+from .vector_store import VectorStore
 
 class LLMManager:
     """
@@ -65,6 +66,9 @@ class LLMManager:
         
         # Load prompt templates
         self.prompt_templates = self._load_prompt_templates()
+        
+        # Initialize VectorStore
+        self.vector_store = VectorStore(self.config.get("vector_store", {}))
         
         self.logger.info("LLM Manager initialized")
     
@@ -158,11 +162,10 @@ class LLMManager:
     
     def generate(self, 
                 prompt: str, 
-                
                 provider: Optional[str] = None, 
                 model: Optional[str] = None,
                 temperature: float = 0.7,
-                max_tokens: int = 1000
+                max_tokens: int = 1000,
                 **kwargs) -> Dict[str, Any]:
         """
         Generate a response from an LLM.
@@ -178,41 +181,44 @@ class LLMManager:
         Returns:
             Dictionary containing the response and metadata
         """
-        # Use defaults from config if not specified
-        provider = provider or self.config.get("default_provider", "openai")
-        model = model or self.config.get("default_model", "gpt-4")
-        
-        # Check if we have an API key for this provider
-        if provider not in self.api_keys:
-            raise ValueError(f"No API key found for provider: {provider}")
-        
-        # Check cache if enabled
-        cache_key = f"{provider}:{model}:{hash(prompt)}"
-        if self.cache_enabled and cache_key in self.cache:
-            self.logger.debug(f"Cache hit for prompt: {prompt[:50]}...")
-            return self.cache[cache_key]
-        
-        # Check token limit
-        estimated_tokens = len(prompt) // 4 + max_tokens  # Rough estimation
-        if not self.token_manager.can_make_request(estimated_tokens):
-            raise ValueError("Token limit exceeded. Try again later or reduce request size.")
-        
-        # Generate based on provider
         start_time = time.time()
-        
         try:
-            # Determine if this is a general conversation query
-            is_greeting = any(word in prompt.lower() for word in ["hello", "hi", "hey", "greetings"])
-            if is_greeting:
-                formatted_prompt = self.get_prompt("general", "greeting", prompt)
-            else:
-                # Check if the prompt contains code-specific keywords
-                has_code_keywords = any(word in prompt.lower() for word in ["code", "program", "function", "class", "algorithm", "implementation"])
-                if has_code_keywords:
-                    formatted_prompt = self.get_prompt("code", "analyze", prompt)
-                else:
-                    formatted_prompt = self.get_prompt("general", "chat", prompt)
+            # Get relevant documents first
+            relevant_docs = self.vector_store.search(prompt, top_k=3)
             
+            # Create base prompt with context
+            context = "\n\n".join(doc["text"] for doc in relevant_docs)
+            base_prompt = f"""Context information:
+{context}
+
+User query:
+{prompt}
+
+Please use the context information above if relevant to answer the following query."""
+
+            # Then format based on type (greeting, code, etc)
+            formatted_prompt = self._format_prompt_by_type(base_prompt)
+            
+            # Use defaults from config if not specified
+            provider = provider or self.config.get("default_provider", "openai")
+            model = model or self.config.get("default_model", "gpt-4")
+            
+            # Check if we have an API key for this provider
+            if provider not in self.api_keys:
+                raise ValueError(f"No API key found for provider: {provider}")
+            
+            # Check cache if enabled
+            cache_key = f"{provider}:{model}:{hash(formatted_prompt)}"
+            if self.cache_enabled and cache_key in self.cache:
+                self.logger.debug(f"Cache hit for prompt: {formatted_prompt[:50]}...")
+                return self.cache[cache_key]
+            
+            # Check token limit
+            estimated_tokens = len(formatted_prompt) // 4 + max_tokens  # Rough estimation
+            if not self.token_manager.can_make_request(estimated_tokens):
+                raise ValueError("Token limit exceeded. Try again later or reduce request size.")
+            
+            # Generate based on provider
             if provider == "openai":
                 response = self._generate_openai(formatted_prompt, model, temperature, max_tokens)
             elif provider == "anthropic":
@@ -223,7 +229,7 @@ class LLMManager:
                 raise ValueError(f"Unsupported provider: {provider}")
             
             # Estimate actual tokens (prompt + response)
-            used_tokens = len(prompt) // 4 + len(response) // 4  # Rough estimation
+            used_tokens = len(formatted_prompt) // 4 + len(response) // 4  # Rough estimation
             self.token_manager.record_usage(used_tokens, model, provider)
             
             # Add metadata
@@ -232,27 +238,11 @@ class LLMManager:
                 "metadata": {
                     "provider": provider,
                     "model": model,
-                    "prompt_length": len(prompt),
+                    "prompt_length": len(formatted_prompt),
                     "response_length": len(response),
                     "processing_time": time.time() - start_time
                 }
             }
-
-            # get relevent documents from vector store
-            relevent_docs = self.vector_store.search(prompt, top_k=3)
-
-            # add context to the prompt
-            context = "\n\n".join(doc["text"] for doc in relevent_docs)
-            augmented_prompt = f"""Context information:
-            {context}
-
-            User query:
-            {prompt}
-
-            Please use the context information above if relevant to answer the following query.
-            """
-            # generate response using augmented prompt
-            return super().generate(augmented_prompt, **kwargs)
 
             # Cache the result if enabled
             if self.cache_enabled:
