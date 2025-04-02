@@ -69,6 +69,43 @@ def get_engine():
     return engine
 
 @app.post("/api/query", response_model=QueryResponse)
+async def process_query(request: QueryRequest, engine: KrodEngine = Depends(get_engine)) -> Dict[str, Any]:
+    """
+    Process a query through Krod.
+    
+    Args:
+        request: QueryRequest containing the user's query and optional context_id
 
+    Returns:
+        Dictionary containing the response and metadata
+    """
+
+    try:
+        # process the query
+        result = engine.process_query(request.query, request.context_id)
+
+        # fromat the response
+        response = {
+            "response": result["response"],
+            "context_id": result.get("context_id"),
+            "domain": result.get("domain", "general"),
+            "security_level": result.get("security_level", "low"),
+            "token_usage": result.get("token_usage", 0),
+            "metadata": {
+                "capabilities": result.get("capabilities", []),
+                "common_sense": result.get("common_sense", {}),
+                "security_warnings": result.get("security_warnings", []),
+                "security_recommendations": result.get("security_recommendations", [])
+            }
+        }
+
+        return response
+    except Exception as e:
+        logger.error(f"Error processing query: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing query: {str(e)}"
+        )
+        
 
 
