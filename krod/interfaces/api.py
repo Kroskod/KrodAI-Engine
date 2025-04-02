@@ -98,7 +98,6 @@ async def process_query(request: QueryRequest, engine: KrodEngine = Depends(get_
                 "security_recommendations": result.get("security_recommendations", [])
             }
         }
-
         return response
     except Exception as e:
         logger.error(f"Error processing query: {str(e)}")
@@ -106,6 +105,33 @@ async def process_query(request: QueryRequest, engine: KrodEngine = Depends(get_
             status_code=500,
             detail=f"Error processing query: {str(e)}"
         )
-        
+    
+# health check endpoint
+@app.get("/api/health")
+async def health_check() -> Dict[str, str]:
+    """Check API health status"""
+    return {"status": "healthy"}
+
+@app.get("/api/token-usage")
+async def get_token_usage(engine: KrodEngine = Depends(get_engine)) -> Dict[str, int]:
+    """Get the total token usage for the current session"""
+    return engine.get_token_usage()
+
+def start():
+    """
+    Start the API server using uvicorn
+    """
+    import uvicorn
+    uvicorn.run(
+        "krod.api:app",
+        host=os.getenv("KROD_HOST", "0.0.0.0"),
+        port=int(os.getenv("KROD_PORT", 8000)),
+        reload=os.getenv("KROD_DEBUG", "False").lower() == "true",
+    )
+
+
+# run the API
+if __name__ == "__main__":
+    start()
 
 
