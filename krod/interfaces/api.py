@@ -43,6 +43,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# add api key security schema
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME)
+
+async def verify_api_key(api_key: str = Depends(api_key_header)):
+    """ validate the API key from the request header"""
+    if api_key != os.getenv("KROD_API_KEY"):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid API key"
+        )
+    return api_key
+
 # pydantic models for request/response validations
 class QueryRequest(BaseModel):
     query: str
@@ -69,7 +82,11 @@ def get_engine():
     return engine
 
 @app.post("/api/query", response_model=QueryResponse)
-async def process_query(request: QueryRequest, engine: KrodEngine = Depends(get_engine)) -> Dict[str, Any]:
+async def process_query(
+    request: QueryRequest,
+    api_key: str = Depends(verify_api_key),
+    engine: KrodEngine = Depends(get_engine)
+) -> Dict[str, Any]:
     """
     Process a query through Krod.
     
@@ -113,7 +130,10 @@ async def health_check() -> Dict[str, str]:
     return {"status": "healthy"}
 
 @app.get("/api/token-usage")
-async def get_token_usage(engine: KrodEngine = Depends(get_engine)) -> Dict[str, int]:
+async def get_token_usage(
+    api_key: str = Depends(verify_api_key),
+    engine: KrodEngine = Depends(get_engine)
+) -> Dict[str, int]:
     """Get the total token usage for the current session"""
     return engine.get_token_usage()
 

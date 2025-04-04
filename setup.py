@@ -50,7 +50,10 @@ setup(
         "rich",
         "prompt_toolkit",
         "networkx",
-        "pandas"
+        "pandas",
+        "fastapi",
+        "uvicorn",
+        "pydantic"
     ],
     entry_points={
         "console_scripts": [
