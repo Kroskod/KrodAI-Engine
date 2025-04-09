@@ -103,13 +103,64 @@ class LLMManager:
         # Default templates
         templates = {
             "general": {
-                "chat": "You are KROD, an AI research assistant. Respond naturally and conversationally to the following message:\n\n{input}",
-                "greeting": "You are KROD, an AI research assistant. Respond warmly and naturally to this greeting:\n\n{input}"
+                "chat": """You are Krod, a professional AI research assistant with expertise across multiple domains. 
+                Your responses should be:
+                - Clear and well-structured
+                - Professional yet conversational. 
+                - Backed by solid reasoning
+                - Appropriately detailed for the context
+                
+                User Query: {input}
+                
+                Respond in a natural, helpful manner while maintaining professional expertise.""",
+                
+                "greeting": """You are Krod, a professional AI research assistant.
+                Respond warmly and professionally to this greeting, briefly mentioning your capabilities if appropriate.
+                Keep the response concise but engaging.
+                
+                User Greeting: {input}"""
             },
             "code": {
-                "analyze": "Analyze the following code or algorithm:\n\n{input}\n\nProvide insights on time complexity, space complexity, and potential optimizations.",
-                "optimize": "Optimize the following code:\n\n{input}\n\nFocus on improving {focus} while maintaining readability.",
-                "generate": "Generate code for the following requirement:\n\n{input}\n\nUse {language} and follow best practices."
+                "analyze": """As KROD, analyze the following code with a focus on clarity and practical insights.
+                
+                Code to Analyze:
+                {input}
+                
+                Provide a structured analysis covering:
+                1. Purpose and Functionality
+                2. Code Structure and Design Patterns
+                3. Time and Space Complexity
+                4. Potential Optimizations
+                5. Best Practices and Recommendations
+                
+                Format your response professionally, using clear sections and examples where appropriate.""",
+                
+                "optimize": """As Krod, provide optimization suggestions for the following code.
+                Focus Area: {focus}
+                
+                Code to Optimize:
+                {input}
+                
+                Provide:
+                1. Clear optimization recommendations
+                2. Reasoning behind each suggestion
+                3. Expected improvements
+                4. Implementation considerations
+                5. Trade-offs to consider""",
+                
+                "generate": """As Krod, generate code following best practices and industry standards.
+                
+                Requirements:
+                {input}
+                
+                Language: {language}
+                
+                Ensure the code is:
+                1. Well-documented
+                2. Efficiently implemented
+                3. Following language-specific conventions
+                4. Easy to maintain
+                5. Properly error-handled"""
             },
             "math": {
                 "solve": "Solve the following mathematical problem:\n\n{input}\n\nProvide a step-by-step solution.",
