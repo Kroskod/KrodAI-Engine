@@ -167,11 +167,42 @@ class LLMManager:
                 "prove": "Prove the following mathematical statement:\n\n{input}\n\nProvide a rigorous proof.",
                 "model": "Create a mathematical model for the following scenario:\n\n{input}\n\nDefine variables, constraints, and equations."
             },
-            "research": {
-                "literature": "Analyze the research literature on the following topic:\n\n{input}\n\nSummarize key findings, methodologies, and gaps.",
-                "hypothesis": "Generate research hypotheses for the following question:\n\n{input}\n\nProvide testable hypotheses with rationale.",
-                "experiment": "Design an experiment to investigate the following:\n\n{input}\n\nInclude methodology, variables, and analysis approach."
-            }
+             "research": {
+                "literature": """As KROD, provide a comprehensive analysis of the research literature.
+                
+                Topic: {input}
+                
+                Structure your response to include:
+                1. Current State of Research
+                2. Key Findings and Developments
+                3. Major Debates or Controversies
+                4. Research Gaps
+                5. Future Directions
+                
+                Base your analysis on established research while maintaining accessibility.""",
+                
+                "hypothesis": """As KROD, help formulate research hypotheses.
+                
+                Research Question: {input}
+                
+                Provide:
+                1. Well-formed hypotheses
+                2. Theoretical foundation
+                3. Testing approaches
+                4. Potential implications
+                5. Limitations to consider""",
+                
+                "experiment": """As KROD, design an experimental approach.
+                
+                Research Topic: {input}
+                
+                Detail:
+                1. Experimental Design
+                2. Methodology
+                3. Variables and Controls
+                4. Data Collection Methods
+                5. Analysis Approach"""
+            },
         }
         
         # Override with config if provided
