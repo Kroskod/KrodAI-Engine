@@ -204,7 +204,7 @@ class LLMManager:
                 5. Analysis Approach"""
             },
         }
-        
+
         # Override with config if provided
         if "prompt_templates" in self.config:
             for domain, domain_templates in self.config["prompt_templates"].items():
@@ -213,6 +213,29 @@ class LLMManager:
                 templates[domain].update(domain_templates)
         
         return templates
+    
+    def _format_response(self, response: str, domain: str, task: str) -> str:
+
+        """
+        Format the response from an LLM for better readability and structure.
+        """
+        # add section headers
+        if domain == "code":
+            response = f"""# Code Analysis
+{response}
+
+## Recommendations
+- {response.split('\n')[-3:]}"""
+        elif domain == "research":
+            response = f"""# Research Analysis
+{response}
+
+## Key Findings
+- {response.split('\n')[-3:]}"""
+            
+        # add professional closing
+        response += "\n\nIs there anything specific you'd like me to clarify or expand upon?"
+        return response
     
     def get_prompt(self, domain: str, task: str, input_text: str, **kwargs) -> str:
         """
