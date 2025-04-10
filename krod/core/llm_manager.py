@@ -100,13 +100,12 @@ class LLMManager:
         Returns:
             Nested dictionary of prompt templates by domain and task
         """
-        # Default templates
         templates = {
             "general": {
                 "chat": """You are Krod, a professional AI research assistant with expertise across multiple domains. 
                 Your responses should be:
                 - Clear and well-structured
-                - Professional yet conversational. 
+                - Professional yet conversational
                 - Backed by solid reasoning
                 - Appropriately detailed for the context
                 
@@ -121,7 +120,7 @@ class LLMManager:
                 User Greeting: {input}"""
             },
             "code": {
-                "analyze": """As KROD, analyze the following code with a focus on clarity and practical insights.
+                "analyze": """As Krod, analyze the following code with a focus on clarity and practical insights.
                 
                 Code to Analyze:
                 {input}
@@ -162,13 +161,8 @@ class LLMManager:
                 4. Easy to maintain
                 5. Properly error-handled"""
             },
-            "math": {
-                "solve": "Solve the following mathematical problem:\n\n{input}\n\nProvide a step-by-step solution.",
-                "prove": "Prove the following mathematical statement:\n\n{input}\n\nProvide a rigorous proof.",
-                "model": "Create a mathematical model for the following scenario:\n\n{input}\n\nDefine variables, constraints, and equations."
-            },
-             "research": {
-                "literature": """As KROD, provide a comprehensive analysis of the research literature.
+            "research": {
+                "literature": """As Krod, provide a comprehensive analysis of the research literature.
                 
                 Topic: {input}
                 
@@ -203,6 +197,29 @@ class LLMManager:
                 4. Data Collection Methods
                 5. Analysis Approach"""
             },
+            "math": {
+                "solve": """As KROD, provide a clear, step-by-step solution.
+                
+                Problem: {input}
+                
+                Present your solution with:
+                1. Problem Understanding
+                2. Solution Strategy
+                3. Step-by-Step Breakdown
+                4. Final Answer
+                5. Verification Method""",
+                
+                "prove": """As KROD, construct a rigorous mathematical proof.
+                
+                Statement to Prove: {input}
+                
+                Structure your proof with:
+                1. Given Information
+                2. Key Concepts
+                3. Logical Steps
+                4. Conclusion
+                5. Alternative Approaches"""
+            },
         }
 
         # Override with config if provided
@@ -215,26 +232,26 @@ class LLMManager:
         return templates
     
     def _format_response(self, response: str, domain: str, task: str) -> str:
-
         """
-        Format the response from an LLM for better readability and structure.
+        Format the response for better readability and professionalism.
         """
         # add section headers
         if domain == "code":
-            response = f"""# Code Analysis
+            response = f"""## Code Analysis
 {response}
 
 ## Recommendations
 - {response.split('\n')[-3:]}"""
         elif domain == "research":
-            response = f"""# Research Analysis
+            response = f"""## Research Analysis
 {response}
 
-## Key Findings
+## Key Takeaways
 - {response.split('\n')[-3:]}"""
-            
+        
         # add professional closing
         response += "\n\nIs there anything specific you'd like me to clarify or expand upon?"
+        
         return response
     
     def get_prompt(self, domain: str, task: str, input_text: str, **kwargs) -> str:
@@ -336,6 +353,10 @@ Please use the context information above if relevant to answer the following que
             # Estimate actual tokens (prompt + response)
             used_tokens = len(formatted_prompt) // 4 + len(response) // 4  # Rough estimation
             self.token_manager.record_usage(used_tokens, model, provider)
+            
+            # Format the response professionally
+            if "domain" in kwargs and "task" in kwargs:
+                response = self._format_response(response, kwargs["domain"], kwargs["task"])
             
             # Add metadata
             result = {
