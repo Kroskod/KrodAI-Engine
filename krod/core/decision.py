@@ -41,6 +41,50 @@ class Decision:
             return DecisionConfidence.MEDIUM
         else:
             return DecisionConfidence.LOW
+        
+
+class DecisionSystem:
+    """
+    Basic decision-making system for Krod.
+    """
+
+    def __init__(self, llm_manager):
+        self.llm_manager = llm_manager
+        self.logger = logging.getLogger("krod.decision")
+
+        # decision thresholds
+        self.confidence_threshold = 0.8
+        self.alternative_threshold = 0.5
+
+        # track decision for learning
+        self.decision_history = []
+    
+    def make_decision(self, 
+                      context: Dict[str, Any],
+                      options: List[str] = None) -> Decision:
+        """
+        Make a decision based on the given context and available options.
+        """
+
+        # format decision prompt
+        prompt = self.format_decision_prompt(context, options)
+
+        # get llm's analysis
+        response = self.llm_manager.generate(
+            prompt,
+            temperature=0.3, #lower temperature for more deterministic and focused responses
+        )
+
+        # parse decision from response
+        decision = self._parse_decision(response["text"])
+
+        # log decision
+        self.logger.info(f"Made decision: {decision.action} with confidence {decision.confidence}")
+        self.decision_history.append(decision)
+        
+        
+        
+        
 
 
 
