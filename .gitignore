@@ -11,3 +11,7 @@ __pycache__/
 
 # environment variables
 .env
+
+
+ssh-key
+ssh-key.pub
