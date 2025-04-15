@@ -26,6 +26,9 @@ from krod.modules.research.literature import LiteratureAnalyzer
 # security validator
 from .security_validator import SecurityValidator
 
+# decision system
+from .decision import DecisionSystem, Decision, DecisionConfidence
+
 logger = logging.getLogger(__name__)
 
 class KrodEngine:
@@ -81,6 +84,11 @@ class KrodEngine:
         self.modules = self._load_modules()
         
         self.logger.info("KROD Engine initialized with %d modules", len(self.modules))
+
+        # initialize the research context
+
+        # initialize decision system
+        self.decision_system = DecisionSystem(self.llm_manager)
     
     def _initialize_research_context(self):
         """Initialize the research context manager."""
@@ -129,6 +137,7 @@ class KrodEngine:
     def process(self, query: str, context_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Process a research query.
+        Enhanced process method with decision system integration
         
         Args:
             query: The research query to process
@@ -139,23 +148,38 @@ class KrodEngine:
         """
         self.logger.info("Processing query: %s", query)
         
-        try: 
-            # Perform security validation first
+        # Initialize response data
+        response_data = {}
+        
+        try:
+            # Get or create research context
+            context = self.research_context.get(context_id) if context_id else self.research_context.create()
+            
+            # Security validation
             security_check = self.security_validator.validate_query(query)
             
-            # Initialize response with security information
-            response_data = {
-                "response": "",
-                "context_id": None,
-                "domain": "general",
-                "security_level": security_check["security_level"],
-                "security_warnings": security_check["warnings"],
-                "security_recommendations": security_check["recommendations"]
-            }
-    
+            # If query is restricted, return security notice immediately
+            if security_check["restricted"]:
+                return {
+                    "response": """
+                    This query involves highly sensitive security topics that require expert review.
+                    Please consult security professionals for guidance on this topic.
+                    """,
+                    "security_level": security_check["security_level"],
+                    "security_warnings": security_check["warnings"],
+                    "security_recommendations": security_check["recommendations"]
+                }
+            
+            # Analyze query to determine domain and capabilities
+            domain, capabilities = self._analyze_query(query)
+            
+            # Apply common sense to determine approach
+            common_sense = self.common_sense_system.apply_common_sense(query, domain)
+            
+            
 
             # Analyze the query to determine the domain and required capabilities
-            domain, capabilities = self._analyze_query(query)
+            # domain, capabilities = self._analyze_query(query)
             response_data["domain"] = domain  # Set the domain before common sense check
         
         except Exception as e:
@@ -323,6 +347,36 @@ class KrodEngine:
                 response_data["security_disclaimer"] + "\n\n" + response_data["response"]
             )
         
+        
+    
+        # Check if clarification is needed
+            clarification_result = self.clarification_system.check_needs_clarification(query)
+            if clarification_result.get("needs_clarification", False):
+                return self._handle_clarification(query, context_id)
+            
+            # Build decision context with all available information
+            decision_context = {
+                "query": query,
+                "security_level": security_check["security_level"],
+                "context_id": context_id,
+                "domain": domain,
+                "capabilities": capabilities,
+                "common_sense": common_sense,
+                "identity": self.identity.get_introduction()
+            }
+
+            # Make decision with validation
+            decision = self.decision_system.make_decision(decision_context)
+            if not self.decision_system.validate_decision(decision, decision_context):
+                return self._standard_processing(query, context_id)
+
+            # Process based on confidence
+            if decision.confidence_level == DecisionConfidence.HIGH:
+                return self._autonomous_processing(decision, query, context_id)
+            else:
+                # standard processing
+                return self._standard_processing(query, context_id)
+        
         return response_data
     
     def _analyze_query(self, query: str) -> tuple:
@@ -457,5 +511,180 @@ class KrodEngine:
         if hasattr(self.token_manager, 'get_usage_stats'):
             return self.token_manager.get_usage_stats()
         return {"daily_tokens_used": 0, "daily_limit": 100000}
+    
+    def _autonomous_processing(self, 
+                             decision: Decision,
+                             query: str,
+                             context_id: Optional[str]) -> Dict[str, Any]:
+        """
+        Handle processing when decision confidence is high.
+        """
+        # Execute decided action
+        if "analyze" in decision.action.lower():
+            domain, capabilities = self._analyze_query(query)
+            return self._process_analysis(query, domain, capabilities, context_id)
+            
+        elif "clarify" in decision.action.lower():
+            return self._handle_clarification(query, context_id)
+            
+        elif "research" in decision.action.lower():
+            return self._handle_research(query, context_id)
+        
+        # Fallback to standard processing if action not recognized
+        return self._standard_processing(query, context_id)
+    
+    def _process_analysis(self, 
+                         query: str,
+                         domain: str,
+                         capabilities: List[str],
+                         context_id: Optional[str]) -> Dict[str, Any]:
+        """
+        Handle processing when decision action is to analyze.
+        """
+        # Process the query using the appropriate modules
+        results = []
+        for capability in capabilities:
+            domain_name, capability_name = capability.split('.')
+            if domain_name in self.modules:
+                module = self.modules[domain_name]
+                if capability_name in module:
+                    method = module[capability_name]
+                    # For our specialized module handlers
+                    if domain_name == "code" and capability_name == "analyze":
+                        result = self.code_analyzer.process(
+                            query, 
+                            self.research_context.get_context(context_id) if context_id else []
+                        )
+                        results.append(result.get("response", ""))
+                    elif domain_name == "math" and capability_name == "solve":
+                        result = self.math_solver.process(
+                            query, 
+                            self.research_context.get_context(context_id) if context_id else []
+                        )
+                        results.append(result.get("response", ""))
+                    elif domain_name == "research" and capability_name == "literature":
+                        result = self.literature_analyzer.process(
+                            query, 
+                            self.research_context.get_context(context_id) if context_id else []
+                        )
+                        results.append(result.get("response", ""))
+                    else:
+                        # For placeholder methods
+                        result = method(query)
+                        results.append(result)
+        
+        # Integrate results
+        final_response = self._integrate_results(results)
+        
+        # Extract knowledge for the knowledge graph
+        self._extract_knowledge(query, final_response, domain)
+        
+        # Add response to context if available
+        context = self.research_context.get(context_id) if context_id else self.research_context.create()
+        if hasattr(context, 'add_response'):
+            context.add_response(final_response)
+        
+        # Get token usage information if available
+        token_usage = 0
+        if hasattr(self.token_manager, 'get_usage_stats'):
+            usage_stats = self.token_manager.get_usage_stats()
+            token_usage = usage_stats.get("daily_tokens_used", 0)
+        
+        response_data = {
+            "response": final_response,
+            "context_id": context.id if hasattr(context, 'id') else None,
+            "domain": domain,
+            "capabilities": capabilities,
+            "common_sense": self.common_sense_system.apply_common_sense(query, domain),
+            "token_usage": token_usage
+        }
+        
+        # If security disclaimer exists, prepend it to the response
+        if "security_disclaimer" in response_data:
+            response_data["response"] = (
+                response_data["security_disclaimer"] + "\n\n" + response_data["response"]
+            )
+        
+        return response_data
+    
+    def _handle_clarification(self, 
+                           query: str,
+                           context_id: Optional[str]) -> Dict[str, Any]:
+        """
+        Handle processing when decision action is to clarify.
+        """
+        clarification_result = self.clarification_system.check_needs_clarification(query)
+        if clarification_result.get("needs_clarification", False):
+            # Format clarification questions
+            clarification_response = self.clarification_system.format_clarification_response(
+                clarification_result.get("questions", [])
+            )
+            
+            # Add response to context if available
+            context = self.research_context.get(context_id) if context_id else self.research_context.create()
+            if hasattr(context, 'add_response'):
+                context.add_response(clarification_response)
+            
+            response_data = {
+                "response": clarification_response,
+                "context_id": context.id if hasattr(context, 'id') else None,
+                "domain": "clarification",
+                "needs_clarification": True
+            }
+            
+            # Get token usage information if available
+            token_usage = 0
+            if hasattr(self.token_manager, 'get_usage_stats'):
+                usage_stats = self.token_manager.get_usage_stats()
+                token_usage = usage_stats.get("daily_tokens_used", 0)
+            
+            response_data["token_usage"] = token_usage
+            
+            return response_data
+        
+        return self._standard_processing(query, context_id)
+    
+    def _handle_research(self, 
+                       query: str,
+                       context_id: Optional[str]) -> Dict[str, Any]:
+        """
+        Handle processing when decision action is to research.
+        """
+        # Implement research handling logic
+        # This is a placeholder and should be replaced with actual implementation
+        return self._standard_processing(query, context_id)
+    
+    def _standard_processing(self, 
+                           query: str,
+                           context_id: Optional[str]) -> Dict[str, Any]:
+        """
+        Handle processing when decision confidence is low.
+        """
+        # Implement standard processing logic
+        # This is a placeholder and should be replaced with actual implementation
+        return self._process_analysis(query, "general", ["general.analyze"], context_id)
+    
+    def _handle_error(self, error_message: str) -> Dict[str, Any]:
+        """
+        Handle processing when an error occurs.
+        """
+        return {
+            "response": "An error occurred while processing your query. Please try again later.",
+            "error": error_message
+        }
+    
+    def _handle_security_restriction(self, security_check: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle processing when a query is restricted.
+        """
+        return {
+            "response": """
+            This query involves highly sensitive security topics that require expert review.
+            Please consult security professionals for guidance on this topic.
+            """,
+            "security_level": security_check["security_level"],
+            "security_warnings": security_check["warnings"],
+            "security_recommendations": security_check["recommendations"]
+        }
     
     
