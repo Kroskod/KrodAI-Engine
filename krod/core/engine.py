@@ -111,6 +111,7 @@ class KrodEngine:
         
         # Placeholder for dynamic module loading
         # In the full implementation, this would discover and load modules
+        #todo: add dynamic module loading
         
         # Connect to the initialized modules
         modules["code"] = {
