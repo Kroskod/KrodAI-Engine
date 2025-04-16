@@ -15,3 +15,5 @@ __pycache__/
 
 ssh-key
 ssh-key.pub
+
+logs/
