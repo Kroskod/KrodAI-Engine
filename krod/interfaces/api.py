@@ -19,8 +19,10 @@ import logging
 import os
 from dotenv import load_dotenv
 
-from ..core.engine import KrodEngine
-from ..core.config import load_config
+import json
+
+from krod.core.engine import KrodEngine
+from krod.core.config import load_config
 
 # load environment variables
 load_dotenv()
@@ -44,11 +46,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger("Krod.api")
 
+
+
+# # Pretty JSON response
+# class PrettyJSONResponse(JSONResponse):
+#     def render(self, content: Any) -> bytes:
+#         return json.dumps(
+#             content,
+#             ensure_ascii=False,
+#             allow_nan=False,
+#             indent=2,
+#             separators=(", ", ": "),
+#         ).encode("utf-8")
+
+
 # initialize fastapi app
 app = FastAPI(
     title="Krod API",
     description="Krod AI research assistant API",
-    version="0.1.0"
+    version="0.1.0",
+    # default_response_class=PrettyJSONResponse
 )
 
 # add CORS middleware
@@ -72,6 +89,7 @@ async def verify_api_key(api_key: str = Depends(api_key_header)):
 class QueryRequest(BaseModel):
     query: str
     context_id: Optional[str] = None
+
 
 class QueryResponse(BaseModel):
     response: str
@@ -141,13 +159,17 @@ async def get_token_usage(
     return engine.get_token_usage()
 
 # Startup/Shutdown events
-@app.on_event("startup")
+@app.lifespan("startup")
 async def startup_event():
     logger.info(f"Starting KROD API server in {ENVIRONMENT} mode")
 
-@app.on_event("shutdown")
+@app.lifespan("shutdown")
 async def shutdown_event():
     logger.info("Shutting down KROD API server")
+
+@app.get("/")
+async def root():
+    return {"message": "Krod API is running"}
 
 def start():
     """
@@ -163,5 +185,3 @@ def start():
 
 if __name__ == "__main__":
     start()
-
-
