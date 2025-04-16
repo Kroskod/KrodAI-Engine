@@ -22,12 +22,14 @@ from krod.modules.code.analyzer import CodeAnalyzer
 from krod.modules.code.algorithm import AlgorithmAnalyzer
 from krod.modules.math.solver import MathSolver
 from krod.modules.research.literature import LiteratureAnalyzer
+from krod.core.types import DecisionConfidence
+# from krod.core.decision import DecisionSystem, Decision
 
 # security validator
 from .security_validator import SecurityValidator
 
 # decision system
-from .decision import DecisionSystem, Decision, DecisionConfidence
+from .decision import DecisionSystem, Decision
 
 logger = logging.getLogger(__name__)
 

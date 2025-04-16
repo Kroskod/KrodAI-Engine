@@ -3,14 +3,14 @@ Krod decision system - Provides basic autonomous decision-making capabilities.
 
 """
 
-import looping
+from krod.core.types import DecisionConfidence
 from typing import Dict, Any, Optional, List
 from enum import Enum
 
-class DecisionConfidence(Enum):
-    HIGH = "high"       # > 90%
-    MEDIUM = "medium"   # > 50%
-    LOW = "low"         # > 10%
+# class DecisionConfidence(Enum):
+#     HIGH = "high"       # > 90%
+#     MEDIUM = "medium"   # > 50%
+#     LOW = "low"         # > 10%
 
 class Decision:
 
@@ -24,11 +24,11 @@ class Decision:
 
     def __init__(self, 
                  action: str,
-                 confidence: float,
+                 confidence_level: DecisionConfidence,
                  reasoning: str,
                  alternative: List[str] = None):
         self.action = action
-        self.confidence = confidence
+        self.confidence_level = confidence_level
         self.reasoning = reasoning
         self.alternative = alternative
         self.timestamp = datetime.now()
@@ -50,7 +50,7 @@ class DecisionSystem:
     
     def __init__(self, llm_manager):
         self.llm_manager = llm_manager
-        self.logger = logging.getLogger("krod.decision")
+        # self.logger = logging.getLogger("krod.decision")
         
         # Decision thresholds
         self.confidence_threshold = 0.8

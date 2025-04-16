@@ -35,16 +35,22 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 if not KROD_API_KEY:
     raise RuntimeError("KROD_API_KEY environment variable is not set")
 
+
+log_dir = "logs"
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
 # Configure logging
 logging.basicConfig(
     level=os.getenv("KROD_LOG_LEVEL", "INFO"),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler('/home/krod/logs/api.log') if ENVIRONMENT == "production" else logging.NullHandler()
+        logging.FileHandler(os.path.join(log_dir, 'api.log')) if ENVIRONMENT == "production" else logging.NullHandler()
     ]
 )
 logger = logging.getLogger("Krod.api")
+
 
 
 
@@ -159,11 +165,11 @@ async def get_token_usage(
     return engine.get_token_usage()
 
 # Startup/Shutdown events
-@app.lifespan("startup")
+@app.on_event("startup")
 async def startup_event():
     logger.info(f"Starting KROD API server in {ENVIRONMENT} mode")
 
-@app.lifespan("shutdown")
+@app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Shutting down KROD API server")
 
