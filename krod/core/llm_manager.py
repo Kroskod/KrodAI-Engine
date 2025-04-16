@@ -8,8 +8,8 @@ import json
 import os
 from typing import Dict, Any, List, Optional, Union
 import requests
-from .token_manager import TokenManager
-from .vector_store import VectorStore
+from krod.core.token_manager import TokenManager
+from krod.core.vector_store import VectorStore
 
 class LLMManager:
     """
@@ -241,13 +241,13 @@ class LLMManager:
 {response}
 
 ## Recommendations
-- {response.split('\n')[-3:]}"""
+- " ".join(response.split('\n')[-3:])"""
         elif domain == "research":
             response = f"""## Research Analysis
 {response}
 
 ## Key Takeaways
-- {response.split('\n')[-3:]}"""
+- " ".join(response.split('\n')[-3:])"""
         
         # add professional closing
         response += "\n\nIs there anything specific you'd like me to clarify or expand upon?"
