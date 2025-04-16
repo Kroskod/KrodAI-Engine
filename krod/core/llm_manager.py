@@ -459,6 +459,11 @@ Please use the context information above if relevant to answer the following que
         # Placeholder for Cohere API integration
         raise NotImplementedError("Cohere API integration not yet implemented")
     
+    def _format_prompt_by_type(self, prompt: str) -> str:
+        """Format the prompt based on its type."""
+        # For now, just return the prompt as is
+        return prompt
+    
     def analyze_code(self, code: str, language: Optional[str] = None) -> Dict[str, Any]:
         """
         Analyze code using an LLM.
