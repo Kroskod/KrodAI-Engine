@@ -131,11 +131,11 @@ async def general_exception_handler(request, exc):
 @app.post("/api/query", response_model=QueryResponse)
 async def process_query(
     request: QueryRequest,
-    api_key: str = Depends(verify_api_key),
+    _: str = Depends(verify_api_key),
     engine: KrodEngine = Depends(get_engine)
 ) -> Dict[str, Any]:
     try:
-        result = engine.process_query(request.query, request.context_id)
+        result = engine.process(request.query, request.context_id)
         return {
             "response": result["response"],
             "context_id": result.get("context_id"),
