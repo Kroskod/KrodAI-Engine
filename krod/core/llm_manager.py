@@ -288,6 +288,7 @@ class LLMManager:
                 model: Optional[str] = None,
                 temperature: float = 0.7,
                 max_tokens: int = 1000,
+                conversation_history: Optional[List[Dict[str, str]]] = None,
                 **kwargs) -> Dict[str, Any]:
         """
         Generate a response from an LLM.
@@ -298,7 +299,7 @@ class LLMManager:
             model: The specific model to use (default from config)
             temperature: Creativity parameter (0.0 to 1.0)
             max_tokens: Maximum tokens in the response
-            
+            conversation_history: Optional list of previous messages
             
         Returns:
             Dictionary containing the response and metadata
@@ -308,15 +309,25 @@ class LLMManager:
             # Get relevant documents first
             relevant_docs = self.vector_store.search(prompt, top_k=3)
             
-            # Create base prompt with context
+            # Create base prompt with context and conversation history
             context = "\n\n".join(doc["text"] for doc in relevant_docs)
+            
+            # Format conversation history if provided
+            conversation_context = ""
+            if conversation_history:
+                conversation_context = "\n\nPrevious conversation:\n"
+                for message in conversation_history:
+                    role = "User" if message["role"] == "user" else "Assistant"
+                    conversation_context += f"{role}: {message['content']}\n"
+            
             base_prompt = f"""Context information:
 {context}
 
-User query:
+{conversation_context}
+Current query:
 {prompt}
 
-Please use the context information above if relevant to answer the following query."""
+Please use the context information and previous conversation if relevant to answer the following query."""
 
             # Then format based on type (greeting, code, etc)
             formatted_prompt = self._format_prompt_by_type(base_prompt)

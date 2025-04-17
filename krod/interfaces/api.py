@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import logging
 import os
 from dotenv import load_dotenv
@@ -95,6 +95,7 @@ async def verify_api_key(api_key: str = Depends(api_key_header)):
 class QueryRequest(BaseModel):
     query: str
     context_id: Optional[str] = None
+    conversation_history: Optional[List[Dict[str, str]]] = None
 
 
 class QueryResponse(BaseModel):
@@ -135,7 +136,11 @@ async def process_query(
     engine: KrodEngine = Depends(get_engine)
 ) -> Dict[str, Any]:
     try:
-        result = engine.process(request.query, request.context_id)
+        result = engine.process(
+            request.query,
+            request.context_id,
+            request.conversation_history
+        )
         return {
             "response": result["response"],
             "context_id": result.get("context_id"),
