@@ -104,20 +104,28 @@ class LLMManager:
             "general": {
                 "chat": """You are Krod, a professional AI research assistant with expertise across multiple domains. 
                 Your responses should be:
-                - Clear and well-structured
-                - Professional yet conversational
-                - Backed by solid reasoning
-                - Appropriately detailed for the context
+                - Natural and conversational
+                - Professional yet friendly
+                - Context-aware
+                - Concise unless detail is needed
                 
-                User Query: {input}
+                Previous conversation:
+                {conversation_history}
                 
-                Respond in a natural, helpful manner while maintaining professional expertise.""",
+                Current message: {input}
+                
+                Respond naturally while maintaining professional expertise. For greetings or casual conversation, 
+                keep responses friendly and brief. For technical queries, provide detailed assistance.""",
                 
                 "greeting": """You are Krod, a professional AI research assistant.
-                Respond warmly and professionally to this greeting, briefly mentioning your capabilities if appropriate.
-                Keep the response concise but engaging.
+                Respond naturally and warmly to this greeting. Keep it simple and friendly.
                 
-                User Greeting: {input}"""
+                User message: {input}""",
+                
+                "farewell": """You are Krod, a professional AI research assistant.
+                Respond warmly to this farewell or thank you message. Keep it simple and genuine.
+                
+                User message: {input}"""
             },
             "code": {
                 "analyze": """As Krod, analyze the following code with a focus on clarity and practical insights.
@@ -306,32 +314,35 @@ class LLMManager:
         """
         start_time = time.time()
         try:
-            # Get relevant documents first
-            relevant_docs = self.vector_store.search(prompt, top_k=3)
-            
-            # Create base prompt with context and conversation history
-            context = "\n\n".join(doc["text"] for doc in relevant_docs)
-            
             # Format conversation history if provided
-            conversation_context = ""
+            history_text = ""
             if conversation_history:
-                conversation_context = "\n\nPrevious conversation:\n"
-                for message in conversation_history:
-                    role = "User" if message["role"] == "user" else "Assistant"
-                    conversation_context += f"{role}: {message['content']}\n"
-            
-            base_prompt = f"""Context information:
+                history_text = "\n".join([
+                    f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}"
+                    for msg in conversation_history[-3:]  # Keep last 3 messages for context
+                ])
+
+            # For simple greetings/farewells, skip the context gathering
+            if any(keyword in prompt.lower() for keyword in ["hi", "hello", "hey", "bye", "thanks", "thank you"]):
+                formatted_prompt = self._format_prompt_by_type(prompt)
+            else:
+                # Get relevant documents for technical queries
+                relevant_docs = self.vector_store.search(prompt, top_k=3)
+                context = "\n\n".join(doc["text"] for doc in relevant_docs)
+                
+                base_prompt = f"""Context information:
 {context}
 
-{conversation_context}
+Previous conversation:
+{history_text}
+
 Current query:
 {prompt}
 
-Please use the context information and previous conversation if relevant to answer the following query."""
+Please provide a natural, context-aware response."""
 
-            # Then format based on type (greeting, code, etc)
-            formatted_prompt = self._format_prompt_by_type(base_prompt)
-            
+                formatted_prompt = self._format_prompt_by_type(base_prompt)
+
             # Use defaults from config if not specified
             provider = provider or self.config.get("default_provider", "openai")
             model = model or self.config.get("default_model", "gpt-4")
@@ -413,9 +424,6 @@ Please use the context information and previous conversation if relevant to answ
         Returns:
             Generated text
         """
-        # This would use the Claude Python client in a real implementation
-        # For now, we'll use a simple requests implementation
-        
         api_key = self.api_keys["openai"]
         url = "https://api.openai.com/v1/chat/completions"
         
@@ -424,9 +432,19 @@ Please use the context information and previous conversation if relevant to answ
             "Authorization": f"Bearer {api_key}"
         }
         
+        # Add system message to set the tone
         data = {
             "model": model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [
+                {
+                    "role": "system",
+                    "content": """You are Krod, a professional AI research assistant. 
+                    Respond naturally and conversationally while maintaining expertise. 
+                    For greetings and casual conversation, keep responses simple and friendly. 
+                    For technical queries, provide detailed assistance."""
+                },
+                {"role": "user", "content": prompt}
+            ],
             "temperature": temperature,
             "max_tokens": max_tokens
         }
@@ -470,9 +488,20 @@ Please use the context information and previous conversation if relevant to answ
         # Placeholder for Cohere API integration
         raise NotImplementedError("Cohere API integration not yet implemented")
     
-    def _format_prompt_by_type(self, prompt: str) -> str:
+    def _format_prompt_by_type(self, prompt: str, message_type: str = "general") -> str:
         """Format the prompt based on its type."""
-        # For now, just return the prompt as is
+        # Detect message type
+        greeting_keywords = ["hi", "hello", "hey", "greetings"]
+        farewell_keywords = ["bye", "goodbye", "thanks", "thank you"]
+        
+        message_lower = prompt.lower()
+        
+        if any(keyword in message_lower for keyword in greeting_keywords):
+            return self.get_prompt("general", "greeting", prompt)
+        elif any(keyword in message_lower for keyword in farewell_keywords):
+            return self.get_prompt("general", "farewell", prompt)
+        
+        # For technical queries, use domain-specific templates
         return prompt
     
     def analyze_code(self, code: str, language: Optional[str] = None) -> Dict[str, Any]:
