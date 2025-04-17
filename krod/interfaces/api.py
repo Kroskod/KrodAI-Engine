@@ -165,6 +165,14 @@ async def process_query(
             ),
             timeout=REQUEST_TIMEOUT
         )
+        
+        # Ensure we have a valid response
+        if not result or "response" not in result:
+            raise HTTPException(
+                status_code=500,
+                detail="Invalid response format from engine"
+            )
+            
         return {
             "response": result["response"],
             "context_id": result.get("context_id"),

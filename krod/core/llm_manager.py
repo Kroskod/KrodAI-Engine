@@ -313,6 +313,8 @@ class LLMManager:
             Dictionary containing the response and metadata
         """
         start_time = time.time()
+        self.logger.info(f"Starting generation for prompt: {prompt[:100]}...")
+        
         try:
             # Format conversation history if provided
             history_text = ""
@@ -396,12 +398,13 @@ Please provide a natural, context-aware response."""
             if self.cache_enabled:
                 self.cache[cache_key] = result
             
+            self.logger.info(f"Generation completed in {time.time() - start_time:.2f} seconds")
             return result
             
         except Exception as e:
-            self.logger.error(f"Error generating response: {str(e)}")
+            self.logger.error(f"Error during generation: {str(e)}")
             return {
-                "text": f"Error generating response: {str(e)}",
+                "text": "I apologize, but I encountered an error processing your request. Please try again in a moment.",
                 "error": str(e),
                 "metadata": {
                     "provider": provider,

@@ -137,10 +137,10 @@ class KrodEngine:
         
         return modules
     
-    def process(self, 
-               query: str, 
-               context_id: Optional[str] = None,
-               conversation_history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    async def process(self, 
+                     query: str, 
+                     context_id: Optional[str] = None,
+                     conversation_history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """
         Process a research query.
         Enhanced process method with conversation history support
