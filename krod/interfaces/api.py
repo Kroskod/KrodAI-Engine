@@ -9,7 +9,7 @@ The API supports the following endpoints:
 """
 
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from fastapi.responses import JSONResponse
@@ -19,6 +19,7 @@ import logging
 import os
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
+import asyncio
 
 import json
 
@@ -127,15 +128,25 @@ def get_engine():
         logger.info("Krod Engine initialized")
     return engine
 
+# Add timeout constant
+REQUEST_TIMEOUT = 60  # 60 seconds
+
 # Error handlers
 @app.exception_handler(HTTPException)
-async def http_exception_handler(request, exc):
-    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+async def http_exception_handler(request: Request, exc: HTTPException):
+    logger.error(f"HTTP error: {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
 
 @app.exception_handler(Exception)
-async def general_exception_handler(request, exc):
+async def general_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled error: {str(exc)}")
-    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
 
 # API endpoints
 @app.post("/api/query", response_model=QueryResponse)
@@ -145,10 +156,14 @@ async def process_query(
     engine: KrodEngine = Depends(get_engine)
 ) -> Dict[str, Any]:
     try:
-        result = engine.process(
-            request.query,
-            request.context_id,
-            request.conversation_history
+        # Add timeout for the entire operation
+        result = await asyncio.wait_for(
+            engine.process(
+                request.query,
+                request.context_id,
+                request.conversation_history
+            ),
+            timeout=REQUEST_TIMEOUT
         )
         return {
             "response": result["response"],
@@ -163,9 +178,18 @@ async def process_query(
                 "security_recommendations": result.get("security_recommendations", [])
             }
         }
+    except asyncio.TimeoutError:
+        logger.error("Request timed out")
+        raise HTTPException(
+            status_code=504,
+            detail="Request processing timed out. Please try again."
+        )
     except Exception as e:
         logger.error(f"Error processing query: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing query: {str(e)}"
+        )
 
 @app.get("/api/health")
 async def health_check() -> Dict[str, str]:
@@ -192,6 +216,8 @@ def start():
         host=os.getenv("KROD_HOST", "0.0.0.0"),
         port=int(os.getenv("KROD_PORT", 8000)),
         reload=ENVIRONMENT == "development",
+        timeout_keep_alive=65,  # Keep-alive timeout
+        workers=4  # Number of worker processes
     )
 
 if __name__ == "__main__":

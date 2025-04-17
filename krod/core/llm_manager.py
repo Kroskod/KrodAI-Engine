@@ -414,15 +414,6 @@ Please provide a natural, context-aware response."""
     def _generate_openai(self, prompt: str, model: str, temperature: float, max_tokens: int) -> str:
         """
         Generate a response using OpenAI's API.
-        
-        Args:
-            prompt: The prompt to send
-            model: The model to use
-            temperature: Creativity parameter
-            max_tokens: Maximum tokens in response
-            
-        Returns:
-            Generated text
         """
         api_key = self.api_keys["openai"]
         url = "https://api.openai.com/v1/chat/completions"
@@ -449,12 +440,26 @@ Please provide a natural, context-aware response."""
             "max_tokens": max_tokens
         }
         
-        response = requests.post(url, headers=headers, json=data)
+        try:
+            # Add timeout parameter (30 seconds)
+            response = requests.post(url, headers=headers, json=data, timeout=30)
+            
+            if response.status_code == 200:
+                return response.json()["choices"][0]["message"]["content"]
+            else:
+                error_msg = f"OpenAI API error: {response.status_code} - {response.text}"
+                self.logger.error(error_msg)
+                return f"I apologize, but I encountered an error processing your request. Please try again in a moment."
+            
+        except requests.exceptions.Timeout:
+            error_msg = "Request timed out while waiting for response"
+            self.logger.error(error_msg)
+            return "I apologize, but the request timed out. Please try again in a moment."
         
-        if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"]
-        else:
-            raise Exception(f"OpenAI API error: {response.status_code} - {response.text}")
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Error making request: {str(e)}"
+            self.logger.error(error_msg)
+            return "I apologize, but there was an error processing your request. Please try again in a moment."
     
     def _generate_anthropic(self, prompt: str, model: str, temperature: float, max_tokens: int) -> str:
         """
