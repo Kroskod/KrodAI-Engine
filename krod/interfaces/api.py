@@ -18,6 +18,7 @@ from typing import Dict, Any, Optional, List
 import logging
 import os
 from dotenv import load_dotenv
+from contextlib import asynccontextmanager
 
 import json
 
@@ -67,11 +68,19 @@ logger = logging.getLogger("Krod.api")
 
 
 # initialize fastapi app
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info(f"Starting Krod API server in {ENVIRONMENT} mode")
+    yield
+    # Shutdown
+    logger.info("Shutting down Krod API server")
+
 app = FastAPI(
     title="Krod API",
     description="Krod AI research assistant API",
     version="0.1.0",
-    # default_response_class=PrettyJSONResponse
+    lifespan=lifespan
 )
 
 # add CORS middleware
@@ -168,15 +177,6 @@ async def get_token_usage(
     engine: KrodEngine = Depends(get_engine)
 ) -> Dict[str, int]:
     return engine.get_token_usage()
-
-# Startup/Shutdown events
-@app.on_event("startup")
-async def startup_event():
-    logger.info(f"Starting KROD API server in {ENVIRONMENT} mode")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("Shutting down KROD API server")
 
 @app.get("/")
 async def root():
