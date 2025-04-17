@@ -137,14 +137,20 @@ class KrodEngine:
         
         return modules
     
-    def process(self, query: str, context_id: Optional[str] = None) -> Dict[str, Any]:
+    def process(self, 
+               query: str, 
+               context_id: Optional[str] = None,
+               conversation_history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """
         Process a research query.
-        Enhanced process method with decision system integration
+        Enhanced process method with conversation history support
         
         Args:
             query: The research query to process
             context_id: Optional ID of an existing research context
+            conversation_history: Optional list of previous messages in format:
+                                [{"role": "user", "content": "..."}, 
+                                 {"role": "assistant", "content": "..."}]
             
         Returns:
             Dictionary containing the response and metadata
@@ -157,6 +163,14 @@ class KrodEngine:
         try:
             # Get or create research context
             context = self.research_context.get(context_id) if context_id else self.research_context.create()
+            
+            # Add conversation history to context if provided
+            if conversation_history:
+                for message in conversation_history:
+                    if message["role"] == "user":
+                        context.add_query(message["content"])
+                    else:
+                        context.add_response(message["content"])
             
             # Security validation
             security_check = self.security_validator.validate_query(query)
