@@ -104,13 +104,12 @@ async def verify_api_key(api_key: str = Depends(api_key_header)):
 # Request/Response models
 class QueryRequest(BaseModel):
     query: str
-    context_id: Optional[str] = None
-    conversation_history: Optional[List[Dict[str, str]]] = None
+    session_id: Optional[str] = None
 
 
 class QueryResponse(BaseModel):
     response: str
-    context_id: Optional[str] = None
+    session_id: Optional[str] = None
     domain: str
     security_level: str
     token_usage: int
@@ -156,26 +155,17 @@ async def process_query(
     engine: KrodEngine = Depends(get_engine)
 ) -> Dict[str, Any]:
     try:
-        # Add timeout for the entire operation
         result = await asyncio.wait_for(
             engine.process(
                 request.query,
-                request.context_id,
-                request.conversation_history
+                request.session_id
             ),
             timeout=REQUEST_TIMEOUT
         )
         
-        # Ensure we have a valid response
-        if not result or "response" not in result:
-            raise HTTPException(
-                status_code=500,
-                detail="Invalid response format from engine"
-            )
-            
         return {
             "response": result["response"],
-            "context_id": result.get("context_id"),
+            "session_id": result["session_id"],  # Return session ID to client
             "domain": result.get("domain", "general"),
             "security_level": result.get("security_level", "low"),
             "token_usage": result.get("token_usage", 0),

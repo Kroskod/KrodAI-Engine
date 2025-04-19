@@ -144,6 +144,7 @@ class KrodEngine:
         """
         Process a research query.
         Enhanced process method with conversation history support
+        Process a query within a session
         
         Args:
             query: The research query to process
@@ -172,6 +173,9 @@ class KrodEngine:
                     else:
                         context.add_response(message["content"])
             
+            # Add current query to context
+            context.add_query(query)
+            
             # Security validation
             security_check = self.security_validator.validate_query(query)
             
@@ -187,191 +191,18 @@ class KrodEngine:
                     "security_recommendations": security_check["recommendations"]
                 }
             
+            # Check if clarification is needed
+            clarification_result = self.clarification_system.check_needs_clarification(query)
+            if clarification_result.get("needs_clarification", False):
+                return self._handle_clarification(query, context_id)
+            
             # Analyze query to determine domain and capabilities
             domain, capabilities = self._analyze_query(query)
             
             # Apply common sense to determine approach
             common_sense = self.common_sense_system.apply_common_sense(query, domain)
             
-            
-
-            # Analyze the query to determine the domain and required capabilities
-            # domain, capabilities = self._analyze_query(query)
-            response_data["domain"] = domain  # Set the domain before common sense check
-        
-        except Exception as e:
-            self.logger.error(f"Error during initial processing: {str(e)}")
-            return {
-                "response": "An error occurred while processing your query. Please try again.",
-                "error": str(e)
-            }
-        
-        # If query is restricted, return security notice
-        if security_check["restricted"]:
-            response_data["response"] = """
-            This query involves highly sensitive security topics that require expert review.
-            Please consult security professionals for guidance on this topic.
-            """
-            return response_data
-        
-        # Add security disclaimer if required
-        if security_check["requires_disclaimer"]:
-            disclaimer = self.security_validator.get_security_disclaimer(
-                security_check["security_level"]
-            )
-            response_data["security_disclaimer"] = disclaimer
-        
-        # Get or create research context
-        context = None
-        if hasattr(self.research_context, 'get'):
-            context = self.research_context.get(context_id) if context_id else self.research_context.create()
-            # Add query to context
-            if hasattr(context, 'add_query'):
-                context.add_query(query)
-        
-        
-        # Apply common sense to determine approach - pass the domain
-        common_sense = self.common_sense_system.apply_common_sense(query, domain)
-        
-        # Check if clarification is needed
-        if common_sense.get("seek_clarification", False):
-            clarification_result = self.clarification_system.check_needs_clarification(query)
-            if clarification_result.get("needs_clarification", False):
-                # Format clarification questions
-                clarification_response = self.clarification_system.format_clarification_response(
-                    clarification_result.get("questions", [])
-                )
-                
-                # Add response to context if available
-                if context and hasattr(context, 'add_response'):
-                    context.add_response(clarification_response)
-                
-                response_data["response"] = clarification_response
-                response_data["needs_clarification"] = True
-                response_data["domain"] = "clarification"
-                return response_data
-        
-        query_lower = query.lower()
-        
-        # Identity and capability queries
-        identity_keywords = [
-            "who are you", "what are you", "what can you do",
-            "your capabilities", "tell me about yourself", "what is krod"
-        ]
-        
-        # Model implementation queries
-        model_implementation_keywords = [
-            "what model", "which model", "what llm", "what language model",
-            "powered by", "based on", "underlying model"
-        ]
-        
-        # Feature and limitation queries
-        feature_keywords = [
-            "what are your limitations", "what can't you do",
-            "your restrictions", "your constraints",
-            "your features", "what can you do"
-        ]
-        
-        if any(keyword in query_lower for keyword in identity_keywords):
-            response_data["response"] = self.identity.get_full_description()
-            response_data["domain"] = "identity"
-            return response_data
-        
-        if any(keyword in query_lower for keyword in model_implementation_keywords):
-            # Redirect model implementation questions to KROD's identity
-            response_data["response"] = self.identity.handle_model_query(query)
-            response_data["domain"] = "identity"
-            return response_data
-        
-        if any(keyword in query_lower for keyword in feature_keywords):
-            if any(limit in query_lower for limit in ["limitation", "can't", "cannot", "restricted"]):
-                response_data["response"] = self.identity.get_model_info("limitations")
-            elif any(ethic in query_lower for ethic in ["ethic", "guideline", "principle"]):
-                response_data["response"] = self.identity.get_model_info("ethics")
-            else:
-                response_data["response"] = self.identity.get_model_info()
-            response_data["domain"] = "capabilities"
-            return response_data
-        
-        # Apply reasoning if appropriate
-        final_response = None
-        if common_sense.get("use_reasoning", False):
-            reasoning_result = self.reasoning_system.apply_reasoning(query, 
-                                                                    self.research_context.get_context(context_id) if context_id else [])
-            if reasoning_result.get("used_reasoning", False):
-                final_response = reasoning_result.get("final_response", None)
-        
-        # If no response from reasoning, process normally
-        if not final_response:
-            # Process the query using the appropriate modules
-            results = []
-            for capability in capabilities:
-                domain_name, capability_name = capability.split('.')
-                if domain_name in self.modules:
-                    module = self.modules[domain_name]
-                    if capability_name in module:
-                        method = module[capability_name]
-                        # For our specialized module handlers
-                        if domain_name == "code" and capability_name == "analyze":
-                            result = self.code_analyzer.process(
-                                query, 
-                                self.research_context.get_context(context_id) if context_id else []
-                            )
-                            results.append(result.get("response", ""))
-                        elif domain_name == "math" and capability_name == "solve":
-                            result = self.math_solver.process(
-                                query, 
-                                self.research_context.get_context(context_id) if context_id else []
-                            )
-                            results.append(result.get("response", ""))
-                        elif domain_name == "research" and capability_name == "literature":
-                            result = self.literature_analyzer.process(
-                                query, 
-                                self.research_context.get_context(context_id) if context_id else []
-                            )
-                            results.append(result.get("response", ""))
-                        else:
-                            # For placeholder methods
-                            result = method(query)
-                            results.append(result)
-            
-            # Integrate results
-            final_response = self._integrate_results(results)
-        
-        # Extract knowledge for the knowledge graph
-        self._extract_knowledge(query, final_response, domain)
-        
-        # Add response to context if available
-        if context and hasattr(context, 'add_response'):
-            context.add_response(final_response)
-        
-        # Get token usage information if available
-        token_usage = 0
-        if hasattr(self.token_manager, 'get_usage_stats'):
-            usage_stats = self.token_manager.get_usage_stats()
-            token_usage = usage_stats.get("daily_tokens_used", 0)
-        
-        response_data["response"] = final_response
-        response_data["context_id"] = context.id if hasattr(context, 'id') else None
-        response_data["domain"] = domain
-        response_data["capabilities"] = capabilities
-        response_data["common_sense"] = common_sense
-        response_data["token_usage"] = token_usage
-        
-        # If security disclaimer exists, prepend it to the response
-        if "security_disclaimer" in response_data:
-            response_data["response"] = (
-                response_data["security_disclaimer"] + "\n\n" + response_data["response"]
-            )
-        
-        
-    
-        # Check if clarification is needed
-            clarification_result = self.clarification_system.check_needs_clarification(query)
-            if clarification_result.get("needs_clarification", False):
-                return self._handle_clarification(query, context_id)
-            
-            # Build decision context with all available information
+            # Build decision context
             decision_context = {
                 "query": query,
                 "security_level": security_check["security_level"],
@@ -381,20 +212,71 @@ class KrodEngine:
                 "common_sense": common_sense,
                 "identity": self.identity.get_introduction()
             }
-
+            
+            # Apply reasoning to enhance decision context
+            reasoning_result = self.reasoning_system.analyze(query, domain, capabilities)
+            decision_context["reasoning"] = reasoning_result
+            
             # Make decision with validation
             decision = self.decision_system.make_decision(decision_context)
             if not self.decision_system.validate_decision(decision, decision_context):
                 return self._standard_processing(query, context_id)
-
+            
             # Process based on confidence
             if decision.confidence_level == DecisionConfidence.HIGH:
                 return self._autonomous_processing(decision, query, context_id)
-            else:
-                # standard processing
-                return self._standard_processing(query, context_id)
-        
-        return response_data
+            
+            # Get context for LLM
+            llm_context = self.research_context.get_context_for_llm(context.id)
+            
+            # Process the query using the appropriate modules
+            results = []
+            for capability in capabilities:
+                domain_name, capability_name = capability.split('.')
+                if domain_name in self.modules:
+                    module = self.modules[domain_name]
+                    if capability_name in module:
+                        method = module[capability_name]
+                        result = method(query, llm_context)
+                        results.append(result)
+            
+            # Integrate results
+            final_response = self._integrate_results(results)
+            
+            # Extract knowledge for the knowledge graph
+            self._extract_knowledge(query, final_response, domain)
+            
+            # Add response to context
+            context.add_response(final_response)
+            
+            # Get token usage information
+            token_usage = 0
+            if hasattr(self.token_manager, 'get_usage_stats'):
+                usage_stats = self.token_manager.get_usage_stats()
+                token_usage = usage_stats.get("daily_tokens_used", 0)
+            
+            # Prepare response data
+            response_data = {
+                "response": final_response,
+                "context_id": context.id,
+                "domain": domain,
+                "capabilities": capabilities,
+                "common_sense": common_sense,
+                "token_usage": token_usage
+            }
+            
+            # Add security disclaimer if needed
+            if security_check.get("requires_disclaimer", False):
+                disclaimer = self.security_validator.get_security_disclaimer(
+                    security_check["security_level"]
+                )
+                response_data["response"] = disclaimer + "\n\n" + response_data["response"]
+            
+            return response_data
+            
+        except Exception as e:
+            self.logger.error(f"Error processing query: {str(e)}")
+            return self._handle_error(str(e))
     
     def _analyze_query(self, query: str) -> tuple:
         """
