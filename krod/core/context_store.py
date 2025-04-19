@@ -79,4 +79,68 @@ class ContextStore:
             logging.error(f"Error loading session {session_id}: {str(e)}")
             return None
 
+
+        
+    def list_sessions(self) -> List[str]:
+        """
+        List all available session IDs.
+        
+        Returns:
+            List of session IDs
+        """
+        try:
+            return [f.stem for f in self.storage_path.glob("*.json")]
+        except Exception as e:
+            logging.error(f"Error listing sessions: {str(e)}")
+            return []
+        
+    def delete_session(self, session_id: str) -> bool:
+        """
+        Delete a session from persistent storage.
+        
+        Args:
+            session_id: ID of the session to delete
             
+        Returns:
+            True if deleted successfully, False otherwise
+        """
+        try:
+            file_path = self.storage_path / f"{session_id}.json"
+            if file_path.exists():
+                file_path.unlink()
+            return True
+        except Exception as e:
+            logging.error(f"Error deleting session {session_id}: {str(e)}")
+            return False
+            
+    def cleanup_old_sessions(self, max_age_days: int = 60) -> int:
+        """
+        Clean up sessions older than specified days.
+        
+        Args:
+            max_age_days: Maximum age of sessions to keep in days
+            
+        Returns:
+            Number of sessions cleaned up
+        """
+        try:
+            now = datetime.now()
+            cleaned = 0
+            
+            for file_path in self.storage_path.glob("*.json"):
+                try:
+                    with open(file_path, 'r') as f:
+                        data = json.load(f)
+                    created_at = datetime.fromisoformat(data["created_at"])
+                    age = (now - created_at).days
+                    
+                    if age > max_age_days:
+                        file_path.unlink()
+                        cleaned += 1
+                except Exception:
+                    continue
+                    
+            return cleaned
+        except Exception as e:
+            logging.error(f"Error cleaning up sessions: {str(e)}")
+            return 0 
