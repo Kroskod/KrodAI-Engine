@@ -5,13 +5,14 @@ KROD Research Context - Manages research sessions and conversation history.
 import uuid
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+from .context_store import ContextStore
 
 class ResearchSession:
     """
     Represents a single research session with conversation history and metadata.
     """
     
-    def __init__(self, session_id: Optional[str] = None):
+    def __init__(self, session_id: Optional[str] = None, config: Optional[Dict[str, Any]] = None):
         """
         Initialize a new research session.
         
@@ -24,7 +25,7 @@ class ResearchSession:
         self.history = []
         self.metadata = {}
         self.artifacts = {}
-    
+        
     def add_query(self, query: str) -> None:
         """
         Add a user query to the session history.
@@ -100,9 +101,46 @@ class ResearchContext:
     Manages multiple research sessions and their contexts.
     """
     
-    def __init__(self):
+    def __init__(self, config: Dict[str, Any] = None):
         """Initialize the research context manager."""
-        self.sessions: Dict[str, Dict] = {}
+        self.config = config or {}
+        self.sessions = {}
+        self.context_store = ContextStore(self.config)
+        
+        # Load existing sessions from storage
+        for session_id in self.context_store.list_sessions():
+            if session_data := self.context_store.load_session(session_id):
+                session = ResearchSession(session_id)
+                session.__dict__.update(session_data)
+                self.sessions[session_id] = session
+    
+    def create(self) -> ResearchSession:
+        """Create a new research session."""
+        session = ResearchSession()
+        self.sessions[session.id] = session
+        
+        # Save to persistent storage
+        self.context_store.save_session(
+            session.id,
+            session.to_dict()
+        )
+        
+        return session
+    
+    def get(self, session_id: str) -> Optional[ResearchSession]:
+        """Get a research session by ID."""
+        # Try memory first
+        if session_id in self.sessions:
+            return self.sessions[session_id]
+            
+        # Try loading from storage
+        if session_data := self.context_store.load_session(session_id):
+            session = ResearchSession(session_id)
+            session.__dict__.update(session_data)
+            self.sessions[session_id] = session
+            return session
+            
+        return None
     
     def create_session(self) -> str:
         """Create a new session with unique ID"""
@@ -138,28 +176,28 @@ class ResearchContext:
             return self.sessions[session_id]['messages']
         return []
     
-    def create(self) -> ResearchSession:
-        """
-        Create a new research session.
+    # def create(self) -> ResearchSession:
+    #     """
+    #     Create a new research session.
         
-        Returns:
-            The newly created session
-        """
-        session = ResearchSession()
-        self.sessions[session.id] = session
-        return session
+    #     Returns:
+    #         The newly created session
+    #     """
+    #     session = ResearchSession()
+    #     self.sessions[session.id] = session
+    #     return session
     
-    def get(self, session_id: str) -> Optional[ResearchSession]:
-        """
-        Get a research session by ID.
+    # def get(self, session_id: str) -> Optional[ResearchSession]:
+    #     """
+    #     Get a research session by ID.
         
-        Args:
-            session_id: ID of the session to retrieve
+    #     Args:
+    #         session_id: ID of the session to retrieve
             
-        Returns:
-            The session if found, None otherwise
-        """
-        return self.sessions.get(session_id)
+    #     Returns:
+    #         The session if found, None otherwise
+    #     """
+    #     return self.sessions.get(session_id)
     
     def delete(self, session_id: str) -> bool:
         """

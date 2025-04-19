@@ -29,7 +29,8 @@ DEFAULT_CONFIG = {
         "max_sessions": 100,
         "max_history_per_session": 50,
         "auto_save": True,
-        "auto_save_path": "data/sessions"
+        "auto_save_path": "data/sessions",
+        "cleanup_days": 60 # auto cleanup sessions older than 60 days
     },
     
     # Domain-specific settings
