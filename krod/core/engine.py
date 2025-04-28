@@ -563,14 +563,14 @@ class KrodEngine:
         # This is a placeholder and should be replaced with actual implementation
         return self._process_analysis(query, "general", ["general.analyze"], context_id)
     
-    def _handle_error(self, error_message: str, context_id: Optional[str] = None) -> Dict[str, Any]:
+    def _handle_error(self, error_message: str) -> Dict[str, Any]:
         """
         Handle processing when an error occurs.
         """
         return {
             "response": "An error occurred while processing your query. Please try again later.",
             "error": error_message,
-            "session_id": context_id
+            # "session_id": context_id
         }
     
     def _handle_security_restriction(self, security_check: Dict[str, Any]) -> Dict[str, Any]:
