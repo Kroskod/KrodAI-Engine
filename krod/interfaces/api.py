@@ -32,7 +32,7 @@ load_dotenv()
 # Environment settings
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 KROD_API_KEY = os.getenv("KROD_API_KEY")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000" if ENVIRONMENT == "development" else "https://krod.kroskod.com")
 
 if not KROD_API_KEY:
     raise RuntimeError("KROD_API_KEY environment variable is not set")
