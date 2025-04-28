@@ -34,12 +34,17 @@ class LLMManager:
             "default_provider": "openai",
             "default_model": "gpt-4",
             "models": {
-                "gpt-4": {
-                    "max_tokens": 8192,
+                "gpt-4o": {
+                    "max_tokens": 30000,
                     "temperature": 0.7,
                     "top_p": 1.0,
                     "frequency_penalty": 0.0,
-                    "presence_penalty": 0.0
+                    "presence_penalty": 0.0,
+                    "rate_limit": {
+                        "tokens_per_minute": 30000,
+                        "requests_per_minute": 500,
+                        "daily_token_limit": 900000
+                    }
                 },
                 "gpt-3.5-turbo": {
                     "max_tokens": 4096,

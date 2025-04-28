@@ -258,8 +258,9 @@ class KrodEngine:
             # Prepare response data
             response_data = {
                 "response": final_response,
-                "context_id": context.id,
+                "session_id": context.id,
                 "domain": domain,
+                "security_level": security_check["security_level"],
                 "capabilities": capabilities,
                 "common_sense": common_sense,
                 "token_usage": token_usage
