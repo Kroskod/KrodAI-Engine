@@ -6,6 +6,8 @@ import logging
 from typing import Dict, Any, List, Optional
 import importlib
 import pkgutil
+from dotenv import load_dotenv
+import os
 
 from krod.core.llm_manager import LLMManager
 from krod.core.research_context import ResearchContext
@@ -31,6 +33,7 @@ from .security_validator import SecurityValidator
 # decision system
 from .decision import DecisionSystem, Decision
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 class KrodEngine:
@@ -399,7 +402,15 @@ class KrodEngine:
         """
         # Placeholder implementation - will be connected to a proper instance
         self.logger.info("Initializing LLM Manager")
+
+        if 'OPENAI_API_KEY' not in os.environ:
+            self.logger.error("OPENAI_API_KEY is not set")
+        else:
+            self.logger.info("OPENAI_API_KEY is set")
         return LLMManager(self.config)
+    
+        
+            
     
     def get_token_usage(self) -> Dict[str, Any]:
         """
