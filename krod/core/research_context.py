@@ -92,7 +92,7 @@ class ResearchSession:
             "updated_at": self.updated_at.isoformat(),
             "history": self.history,
             "metadata": self.metadata,
-            "artifacts": {k: v["content"] for k, v in self.artifacts.items()}
+            "artifacts": self.artifacts
         }
 
 
@@ -104,7 +104,7 @@ class ResearchContext:
     def __init__(self, config: Dict[str, Any] = None):
         """Initialize the research context manager."""
         self.config = config or {}
-        self.sessions = {}
+        self.sessions: Dict[str, ResearchSession] = {}
         self.context_store = ContextStore(self.config)
         
         # Load existing sessions from storage
@@ -175,29 +175,6 @@ class ResearchContext:
         if session_id in self.sessions:
             return self.sessions[session_id]['messages']
         return []
-    
-    # def create(self) -> ResearchSession:
-    #     """
-    #     Create a new research session.
-        
-    #     Returns:
-    #         The newly created session
-    #     """
-    #     session = ResearchSession()
-    #     self.sessions[session.id] = session
-    #     return session
-    
-    # def get(self, session_id: str) -> Optional[ResearchSession]:
-    #     """
-    #     Get a research session by ID.
-        
-    #     Args:
-    #         session_id: ID of the session to retrieve
-            
-    #     Returns:
-    #         The session if found, None otherwise
-    #     """
-    #     return self.sessions.get(session_id)
     
     def delete(self, session_id: str) -> bool:
         """
