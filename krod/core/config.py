@@ -15,13 +15,13 @@ DEFAULT_CONFIG = {
     
     # LLM settings
     "llm": {
-        "default_provider": "anthropic",
-        "default_model": "claude-3-opus-20240229",
+        "default_provider": "openai",
+        "default_model": "gpt-4o",
         "cache_enabled": True,
         "cache_size": 1000,
         "temperature": 0.7,
         "max_tokens": 2000,
-        "retry_attempts": 3
+        "retry_attempts": 4
     },
     
     # Research context settings
@@ -30,7 +30,7 @@ DEFAULT_CONFIG = {
         "max_history_per_session": 50,
         "auto_save": True,
         "auto_save_path": "data/sessions",
-        "cleanup_days": 60 # auto cleanup sessions older than 60 days
+        "cleanup_days": 30 # auto cleanup sessions older than 60 days
     },
     
     # Domain-specific settings
@@ -63,7 +63,7 @@ DEFAULT_CONFIG = {
             "history_file": ".krod_history"
         },
         "api": {
-            "enabled": False,
+            "enabled": True,
             "host": "127.0.0.1",
             "port": 5000,
             "cors_origins": ["*"],
