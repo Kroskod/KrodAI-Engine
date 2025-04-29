@@ -20,7 +20,7 @@ import os
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 import asyncio
-from threading import Lock
+
 import json
 
 from krod.core.engine import KrodEngine
@@ -55,7 +55,7 @@ logger = logging.getLogger("Krod.api")
 
 # initialize fastapi app
 @asynccontextmanager
-def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Starting Krod API server in {ENVIRONMENT} mode")
     yield
@@ -72,14 +72,10 @@ app = FastAPI(
 # add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "https://krod.kroskod.com",
-    ],
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "https://krod.kroskod.com"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["X-API-Key", "Content-Type"],
 )
 
 # API key security
@@ -106,21 +102,14 @@ class QueryResponse(BaseModel):
 
 # Global engine instance
 engine: Optional[KrodEngine] = None
-engine_lock = Lock()
 
 def get_engine():
     """get or initialize the krod engine"""
     global engine
-    with engine_lock:
-        if engine is None or not hasattr(engine, 'ready') or not engine.ready:
-            config = load_config()
-            engine = KrodEngine(config)
-            try:
-                engine.initialize()
-                logger.info("Krod Engine initialized successfully")
-            except Exception as e:
-                logger.error(f"Engine initialization error: {str(e)}")
-                raise RuntimeError(f"Failed to initialize Krod Engine: {str(e)}")
+    if engine is None:
+        config = load_config()
+        engine = KrodEngine(config)
+        logger.info("Krod Engine initialized")
     return engine
 
 # Add timeout constant
