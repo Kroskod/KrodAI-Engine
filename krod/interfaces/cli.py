@@ -1,4 +1,5 @@
 import sys
+import asyncio
 import logging
 from typing import Dict, Any
 from rich import print
@@ -39,7 +40,7 @@ class KrodCLI:
     ║   Type 'quit' to exit                                   ║
     ║                                                         ║
     ╚═════════════════════════════════════════════════════════╝
-    """
+        """
         print(welcome)
 
     def process_command(self, command: str) -> bool:
@@ -57,7 +58,7 @@ class KrodCLI:
             
         elif command.lower() == 'help':
             self.show_help()
-        return True
+            return True
             
         # Process as query
         try:

@@ -6,7 +6,8 @@ Krod decision system - Provides basic autonomous decision-making capabilities.
 from krod.core.types import DecisionConfidence
 from typing import Dict, Any, Optional, List
 from enum import Enum
-
+from datetime import datetime
+import logging
 # class DecisionConfidence(Enum):
 #     HIGH = "high"       # > 90%
 #     MEDIUM = "medium"   # > 50%
@@ -33,14 +34,14 @@ class Decision:
         self.alternative = alternative
         self.timestamp = datetime.now()
 
-    @property
-    def confidence_level(self) -> DecisionConfidence:
-        if self.confidence >= 0.9:
-            return DecisionConfidence.HIGH
-        elif self.confidence >= 0.5:
-            return DecisionConfidence.MEDIUM
-        else:
-            return DecisionConfidence.LOW
+    # @property
+    # def confidence_level(self) -> DecisionConfidence:
+    #     if self.confidence >= 0.9:
+    #         return DecisionConfidence.HIGH
+    #     elif self.confidence >= 0.5:
+    #         return DecisionConfidence.MEDIUM
+    #     else:
+    #         return DecisionConfidence.LOW
         
 
 class DecisionSystem:
@@ -49,8 +50,8 @@ class DecisionSystem:
     """
     
     def __init__(self, llm_manager):
+        self.logger = logging.getLogger("krod.decision")
         self.llm_manager = llm_manager
-        # self.logger = logging.getLogger("krod.decision")
         
         # Decision thresholds
         self.confidence_threshold = 0.8
@@ -78,7 +79,7 @@ class DecisionSystem:
         decision = self._parse_decision(response["text"])
         
         # Log decision
-        self.logger.info(f"Made decision: {decision.action} with confidence {decision.confidence}")
+        self.logger.info(f"Made decision: {decision.action} with confidence {decision.confidence_level}")
         self.decision_history.append(decision)
         
         return decision
@@ -147,9 +148,9 @@ ALTERNATIVES: [Other options considered]
         
         return Decision(
             action=decision_data['action'],
-            confidence=decision_data['confidence'],
+            confidence_level=self._confidence_to_enum(decision_data['confidence']),
             reasoning=decision_data['reasoning'],
-            alternatives=decision_data['alternatives']
+            alternative=decision_data['alternatives']
         )
 
     def validate_decision(self, decision: Decision, context: Dict[str, Any]) -> bool:
@@ -190,6 +191,14 @@ ALTERNATIVES: [Other options considered]
                       for element in required_elements)
         
         return True
+        
+    def _confidence_to_enum(self, confidence: float) -> DecisionConfidence:
+        if confidence >= 0.9:
+            return DecisionConfidence.HIGH
+        elif confidence >= 0.5:
+            return DecisionConfidence.MEDIUM
+        else:
+            return DecisionConfidence.LOW
         
         
         

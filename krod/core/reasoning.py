@@ -26,6 +26,8 @@ class ReasoningSystem:
         self.logger = logging.getLogger("krod.reasoning")
         self.config = config or {}
         self.llm_manager = llm_manager
+
+        
         
         # Load reasoning prompts
         self.reasoning_prompts = {
@@ -39,10 +41,50 @@ class ReasoningSystem:
         self.reasoning_temperature = self.config.get("reasoning_temperature", 0.7)
         
         self.logger.info("Reasoning system initialized")
+
+    def analyze_query(self, query: str, domain: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Analyze a query and return a detailed explanation of the reasoning process and answer.
+
+        Args:
+            query: The user's query
+            domain: The detected domain (optional)
+
+        Returns:
+            Dictionary with reasoning and final response
+        """
+        # Step 1: Generate internal reasoning
+        prompt_internal = self.reasoning_prompts["internal"].format(query=query)
+        internal_result = self.llm_manager.generate(
+            prompt_internal,
+            temperature=self.reasoning_temperature,
+            max_tokens=self.max_reasoning_tokens
+        )
+        internal_reasoning = internal_result.get("text", "")
+
+        # Step 2: Generate final response with explanation
+        prompt_explanation = f"""Original Query: {query}
+
+    Internal Reasoning: {internal_reasoning}
+
+    {self.reasoning_prompts['explanation']}"""
+        explanation_result = self.llm_manager.generate(
+            prompt_explanation,
+            temperature=0.5,
+            max_tokens=1500
+        )
+        final_response = explanation_result.get("text", "")
+
+        # Step 3: Format and return
+        return {
+            "used_reasoning": True,
+            "reasoning": internal_reasoning,
+            
+        }       
     
     def _load_internal_reasoning_prompt(self) -> str:
         """Load the prompt template for internal reasoning."""
-        return """You are KROD, a specialized AI research assistant. Before answering, think through this problem step by step:
+        return """You are Krod, a specialized AI research assistant. Before answering, think through this problem step by step:
 
 {query}
 
