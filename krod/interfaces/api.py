@@ -20,7 +20,7 @@ import os
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 import asyncio
-
+from threading import Lock
 import json
 
 from krod.core.engine import KrodEngine
@@ -53,24 +53,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("Krod.api")
 
-
-
-
-# # Pretty JSON response
-# class PrettyJSONResponse(JSONResponse):
-#     def render(self, content: Any) -> bytes:
-#         return json.dumps(
-#             content,
-#             ensure_ascii=False,
-#             allow_nan=False,
-#             indent=2,
-#             separators=(", ", ": "),
-#         ).encode("utf-8")
-
-
 # initialize fastapi app
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+def lifespan(app: FastAPI):
     # Startup
     logger.info(f"Starting Krod API server in {ENVIRONMENT} mode")
     yield
@@ -117,14 +102,21 @@ class QueryResponse(BaseModel):
 
 # Global engine instance
 engine: Optional[KrodEngine] = None
+engine_lock = Lock()
 
 def get_engine():
     """get or initialize the krod engine"""
     global engine
-    if engine is None:
-        config = load_config()
-        engine = KrodEngine(config)
-        logger.info("Krod Engine initialized")
+    with engine_lock:
+        if engine is None or not hasattr(engine, 'ready') or not engine.ready:
+            config = load_config()
+            engine = KrodEngine(config)
+            try:
+                engine.initialize()
+                logger.info("Krod Engine initialized successfully")
+            except Exception as e:
+                logger.error(f"Engine initialization error: {str(e)}")
+                raise RuntimeError(f"Failed to initialize Krod Engine: {str(e)}")
     return engine
 
 # Add timeout constant
