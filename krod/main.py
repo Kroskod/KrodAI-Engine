@@ -9,6 +9,7 @@ import os
 import sys
 import logging
 import argparse
+import asyncio
 from typing import Dict, Any
 from dotenv import load_dotenv
 from krod.interfaces.cli import KrodCLI

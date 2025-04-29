@@ -81,20 +81,17 @@ class KrodEngine:
         self.algorithm_analyzer = AlgorithmAnalyzer(self.llm_manager)
         self.math_solver = MathSolver(self.llm_manager)
         self.literature_analyzer = LiteratureAnalyzer(self.llm_manager)
+        self.decision_system = DecisionSystem(self.llm_manager)
 
         # Initialize security validator
         self.security_validator = SecurityValidator()
-        
+
         # Load modules dynamically
         self.modules = self._load_modules()
         
         self.logger.info("KROD Engine initialized with %d modules", len(self.modules))
+        self.ready = True  # Engine is now ready
 
-        # initialize the research context
-
-        # initialize decision system
-        self.decision_system = DecisionSystem(self.llm_manager)
-    
     def _initialize_research_context(self):
         """Initialize the research context manager."""
         # Create a proper ResearchContext instance
@@ -140,10 +137,10 @@ class KrodEngine:
         
         return modules
     
-    async def process(self, 
-                     query: str, 
-                     context_id: Optional[str] = None,
-                     conversation_history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    def process(self, 
+                query: str, 
+                context_id: Optional[str] = None,
+                conversation_history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """
         Process a research query.
         Enhanced process method with conversation history support
@@ -159,14 +156,32 @@ class KrodEngine:
         Returns:
             Dictionary containing the response and metadata
         """
+        if not hasattr(self, 'ready') or not self.ready:
+            self.logger.error("KROD Engine is not ready")
+            return {
+                "response": "The system is still initializing. Please try again in a moment.",
+                "error": "KROD Engine is not ready",
+                "session_id": context_id,
+                "domain": "general",
+                "security_level": "low",
+                "token_usage": 0
+            }
+
+        if not self.ready:
+            self.logger.error("KROD Engine is not ready")
+            return {
+                "response": "KROD Engine is not ready",
+                "error": "KROD Engine is not ready"
+            }
         self.logger.info("Processing query: %s", query)
-        
-        # Initialize response data
-        response_data = {}
         
         try:
             # Get or create research context
             context = self.research_context.get(context_id) if context_id else self.research_context.create()
+            
+            # Initialize LLM if not already done
+            if not hasattr(self, 'llm_manager'):
+                self.llm_manager = self._initialize_llm_manager()
             
             # Add conversation history to context if provided
             if conversation_history:
@@ -182,17 +197,8 @@ class KrodEngine:
             # Security validation
             security_check = self.security_validator.validate_query(query)
             
-            # If query is restricted, return security notice immediately
             if security_check["restricted"]:
-                return {
-                    "response": """
-                    This query involves highly sensitive security topics that require expert review.
-                    Please consult security professionals for guidance on this topic.
-                    """,
-                    "security_level": security_check["security_level"],
-                    "security_warnings": security_check["warnings"],
-                    "security_recommendations": security_check["recommendations"]
-                }
+                return self._handle_security_restriction(security_check)
             
             # Check if clarification is needed
             clarification_result = self.clarification_system.check_needs_clarification(query)
@@ -202,7 +208,7 @@ class KrodEngine:
             # Analyze query to determine domain and capabilities
             domain, capabilities = self._analyze_query(query)
             
-            # Apply common sense to determine approach
+            # Apply common sense
             common_sense = self.common_sense_system.apply_common_sense(query, domain)
             
             # Build decision context
@@ -217,7 +223,7 @@ class KrodEngine:
             }
             
             # Apply reasoning to enhance decision context
-            reasoning_result = self.reasoning_system.analyze(query, domain, capabilities)
+            reasoning_result = self.reasoning_system.analyze_query(query, domain)
             decision_context["reasoning"] = reasoning_result
             
             # Make decision with validation
@@ -266,7 +272,7 @@ class KrodEngine:
                 "security_level": security_check["security_level"],
                 "capabilities": capabilities,
                 "common_sense": common_sense,
-                "token_usage": token_usage
+                "token_usage": token_usage.get("daily_tokens_used", 0)
             }
             
             # Add security disclaimer if needed
@@ -402,7 +408,7 @@ class KrodEngine:
         """
         # Placeholder implementation - will be connected to a proper instance
         self.logger.info("Initializing LLM Manager")
-
+        
         if 'OPENAI_API_KEY' not in os.environ:
             self.logger.error("OPENAI_API_KEY is not set")
         else:
@@ -436,7 +442,7 @@ class KrodEngine:
             return self._process_analysis(query, domain, capabilities, context_id)
             
         elif "clarify" in decision.action.lower():
-            return self._handle_clarification(query, context_id)
+            return  self._handle_clarification(query, context_id)
             
         elif "research" in decision.action.lower():
             return self._handle_research(query, context_id)
@@ -462,21 +468,21 @@ class KrodEngine:
                     method = module[capability_name]
                     # For our specialized module handlers
                     if domain_name == "code" and capability_name == "analyze":
-                        result = self.code_analyzer.process(
+                        result =  self.code_analyzer.process(
                             query, 
-                            self.research_context.get_context(context_id) if context_id else []
+                             self.research_context.get_context(context_id) if context_id else []
                         )
                         results.append(result.get("response", ""))
                     elif domain_name == "math" and capability_name == "solve":
-                        result = self.math_solver.process(
+                        result =  self.math_solver.process(
                             query, 
-                            self.research_context.get_context(context_id) if context_id else []
+                             self.research_context.get_context(context_id) if context_id else []
                         )
                         results.append(result.get("response", ""))
                     elif domain_name == "research" and capability_name == "literature":
-                        result = self.literature_analyzer.process(
+                        result =  self.literature_analyzer.process(
                             query, 
-                            self.research_context.get_context(context_id) if context_id else []
+                             self.research_context.get_context(context_id) if context_id else []
                         )
                         results.append(result.get("response", ""))
                     else:
@@ -485,7 +491,7 @@ class KrodEngine:
                         results.append(result)
         
         # Integrate results
-        final_response = self._integrate_results(results)
+        final_response =  self._integrate_results(results)
         
         # Extract knowledge for the knowledge graph
         self._extract_knowledge(query, final_response, domain)
@@ -493,7 +499,7 @@ class KrodEngine:
         # Add response to context if available
         context = self.research_context.get(context_id) if context_id else self.research_context.create()
         if hasattr(context, 'add_response'):
-            context.add_response(final_response)
+         context.add_response(final_response)
         
         # Get token usage information if available
         token_usage = 0
@@ -521,37 +527,24 @@ class KrodEngine:
     def _handle_clarification(self, 
                            query: str,
                            context_id: Optional[str]) -> Dict[str, Any]:
-        """
-        Handle processing when decision action is to clarify.
-        """
+        """Handle clarification requests asynchronously."""
         clarification_result = self.clarification_system.check_needs_clarification(query)
         if clarification_result.get("needs_clarification", False):
-            # Format clarification questions
+            context = self.research_context.get(context_id) if context_id else self.research_context.create()
             clarification_response = self.clarification_system.format_clarification_response(
                 clarification_result.get("questions", [])
             )
             
-            # Add response to context if available
-            context = self.research_context.get(context_id) if context_id else self.research_context.create()
             if hasattr(context, 'add_response'):
-                context.add_response(clarification_response)
+             context.add_response(clarification_response)
             
-            response_data = {
+            return {
                 "response": clarification_response,
                 "context_id": context.id if hasattr(context, 'id') else None,
                 "domain": "clarification",
-                "needs_clarification": True
+                "needs_clarification": True,
+                "token_usage":  self.token_manager.get_usage_stats().get("daily_tokens_used", 0)
             }
-            
-            # Get token usage information if available
-            token_usage = 0
-            if hasattr(self.token_manager, 'get_usage_stats'):
-                usage_stats = self.token_manager.get_usage_stats()
-                token_usage = usage_stats.get("daily_tokens_used", 0)
-            
-            response_data["token_usage"] = token_usage
-            
-            return response_data
         
         return self._standard_processing(query, context_id)
     
@@ -576,13 +569,7 @@ class KrodEngine:
         return self._process_analysis(query, "general", ["general.analyze"], context_id)
     
     def _handle_error(self, error_message: str, context_id: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Handle processing when an error occurs.
-        
-        Args:
-            error_message: The error message to log
-            context_id: Optional session ID
-        """
+        """Handle errors asynchronously."""
         return {
             "response": "An error occurred while processing your query. Please try again later.",
             "error": error_message,
@@ -595,13 +582,11 @@ class KrodEngine:
                 "common_sense": {},
                 "security_warnings": [],
                 "security_recommendations": []
-                }
             }
+        }
     
     def _handle_security_restriction(self, security_check: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Handle processing when a query is restricted.
-        """
+        """Handle security restrictions asynchronously."""
         return {
             "response": """
             This query involves highly sensitive security topics that require expert review.

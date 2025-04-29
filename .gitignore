@@ -17,3 +17,12 @@ ssh-key
 ssh-key.pub
 
 logs/
+
+
+test-engine.py
+
+krodai.egg-info/
+
+krodai-0.1.0.dist-info/
+
+data/
