@@ -72,10 +72,14 @@ app = FastAPI(
 # add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "https://krod.kroskod.com"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://krod.kroskod.com",
+    ],
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["X-API-Key", "Content-Type"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # API key security
