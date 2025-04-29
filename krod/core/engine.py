@@ -25,6 +25,7 @@ from krod.modules.code.algorithm import AlgorithmAnalyzer
 from krod.modules.math.solver import MathSolver
 from krod.modules.research.literature import LiteratureAnalyzer
 from krod.core.types import DecisionConfidence
+from krod.modules.general.general_module import GeneralModule
 # from krod.core.decision import DecisionSystem, Decision
 
 # security validator
@@ -82,7 +83,7 @@ class KrodEngine:
         self.math_solver = MathSolver(self.llm_manager)
         self.literature_analyzer = LiteratureAnalyzer(self.llm_manager)
         self.decision_system = DecisionSystem(self.llm_manager)
-
+        self.general_module = GeneralModule(self.llm_manager)
         # Initialize security validator
         self.security_validator = SecurityValidator()
 
@@ -135,6 +136,10 @@ class KrodEngine:
             "experiment": self._design_experiment
         }
         
+        modules["general"] = {
+            "answer": self.general_module.answer
+        }
+        
         return modules
     
     def process(self, 
@@ -174,6 +179,17 @@ class KrodEngine:
                 "error": "KROD Engine is not ready"
             }
         self.logger.info("Processing query: %s", query)
+
+        greetings = ["hello", "hi", "hey", "ola", "greetings", "bonjour", "hola", "good morning", "good afternoon", "good evening", "good day", "good night", "namaste"]
+        if any(greet in query.lower() for greet in greetings):
+            return {
+                "response": "Hello! How can I assist you today?",
+                "session_id": context_id or "default",
+                "domain": "general",
+                "security_level": "low",
+                "token_usage": 0,
+                "metadata": {}
+            }
         
         try:
             # Get or create research context
@@ -345,16 +361,23 @@ class KrodEngine:
         
         return primary_domain, capabilities
     
-    def _integrate_results(self, results: List[str]) -> str:
+    def _integrate_results(self, results: List[Any]) -> str:
         """Integrate results from different modules."""
         if not results:
             return "I couldn't find any relevant information for your query."
         
-        # For now, just combine the results
-        return "\n\n".join(results)
+        # Convert dicts to their 'response' value if present
+        str_results = []
+        for r in results:
+            if isinstance(r, dict) and "response" in r:
+                str_results.append(str(r["response"]))
+            else:
+                str_results.append(str(r))
+        return "\n\n".join(str_results)
     
     def _extract_knowledge(self, query: str, response: str, domain: str) -> None:
         """
+
         Extract knowledge from the query and response and update the knowledge graph.
         
         Args:

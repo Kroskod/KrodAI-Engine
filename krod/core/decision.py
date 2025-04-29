@@ -82,6 +82,7 @@ class DecisionSystem:
         self.logger.info(f"Made decision: {decision.action} with confidence {decision.confidence_level}")
         self.decision_history.append(decision)
         
+        
         return decision
     
     def _format_decision_prompt(self, 
@@ -158,7 +159,7 @@ ALTERNATIVES: [Other options considered]
         Validate a decision against safety constraints and context.
         """
         # Basic validation rules
-        if decision.confidence < self.fallback_threshold:
+        if decision.confidence_level not in [DecisionConfidence.HIGH, DecisionConfidence.MEDIUM]:
             return False
             
         # Check if decision matches context
