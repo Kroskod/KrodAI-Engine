@@ -134,14 +134,17 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 # API endpoints
 @app.post("/api/query", response_model=QueryResponse)
-def process_query(
+async def process_query(
     request: QueryRequest,
     _: str = Depends(verify_api_key),
     engine: KrodEngine = Depends(get_engine)
 ) -> Dict[str, Any]:
     try:
-        result = asyncio.wait_for(
-            engine.process(
+        loop = asyncio.get_running_loop()
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                engine.process,
                 request.query,
                 request.session_id
             ),
