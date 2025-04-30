@@ -1,5 +1,3 @@
-
-
 """
 General Module: Handles open-ended and general knowledge queries using the LLM.
 """
@@ -31,8 +29,8 @@ class GeneralModule:
 
         prompt = (
             "You are Krod, a helpful, knowledgeable research assistant. "
-            "Answer the following question clearly and concisely: \n\\n"
-            f"(query)"
+            "Answer the following question clearly and concisely:\n\n"
+            f"Question: {query}\n"
         )
         result = self.llm_manager.generate(
             prompt,

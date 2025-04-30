@@ -137,7 +137,8 @@ class KrodEngine:
         }
         
         modules["general"] = {
-            "answer": self.general_module.answer
+            "answer": self.general_module.answer,
+            "analyze": self.general_module.answer
         }
         
         return modules
@@ -216,16 +217,17 @@ class KrodEngine:
             if security_check["restricted"]:
                 return self._handle_security_restriction(security_check)
             
-            # Check if clarification is needed
-            clarification_result = self.clarification_system.check_needs_clarification(query)
-            if clarification_result.get("needs_clarification", False):
-                return self._handle_clarification(query, context_id)
-            
             # Analyze query to determine domain and capabilities
             domain, capabilities = self._analyze_query(query)
             
             # Apply common sense
             common_sense = self.common_sense_system.apply_common_sense(query, domain)
+            
+            # Only check for clarification if ambiguity is high
+            if common_sense.get("ambiguity", 0) > 0.5:
+                clarification_result = self.clarification_system.check_needs_clarification(query)
+                if clarification_result.get("needs_clarification", False):
+                    return self._handle_clarification(query, context_id)
             
             # Build decision context
             decision_context = {
@@ -275,10 +277,9 @@ class KrodEngine:
             context.add_response(final_response)
             
             # Get token usage information
-            token_usage = 0
+            token_usage = {"daily_tokens_used": 0}
             if hasattr(self.token_manager, 'get_usage_stats'):
-                usage_stats = self.token_manager.get_usage_stats()
-                token_usage = usage_stats.get("daily_tokens_used", 0)
+                token_usage = self.token_manager.get_usage_stats()
             
             # Prepare response data
             response_data = {
@@ -316,7 +317,7 @@ class KrodEngine:
         """
         # Simple keyword-based analysis for the initial version
         domains = {
-            "code": ["algorithm", "pattern", "complexity", "optimization", "function", "class", "code"],
+            "code": ["algorithm", "pattern", "complexity", "optimization", "function", "class", "code", "python", "java", "c++", "snippet", "script", "program", "source code"],
             "math": ["equation", "proof", "theorem", "calculus", "algebra", "geometry", "symbolic"],
             "research": ["paper", "literature", "hypothesis", "experiment", "methodology", "analysis"]
         }
@@ -357,7 +358,10 @@ class KrodEngine:
         
         # If no specific capabilities were identified, add a default one
         if not capabilities:
-            capabilities.append(f"{primary_domain}.analyze")
+            if primary_domain == "general":
+                capabilities.append("general.answer")
+            else:
+                capabilities.append(f"{primary_domain}.analyze")
         
         return primary_domain, capabilities
     
@@ -525,10 +529,9 @@ class KrodEngine:
          context.add_response(final_response)
         
         # Get token usage information if available
-        token_usage = 0
+        token_usage = {"daily_tokens_used": 0}
         if hasattr(self.token_manager, 'get_usage_stats'):
-            usage_stats = self.token_manager.get_usage_stats()
-            token_usage = usage_stats.get("daily_tokens_used", 0)
+            token_usage = self.token_manager.get_usage_stats()
         
         response_data = {
             "response": final_response,
@@ -536,7 +539,7 @@ class KrodEngine:
             "domain": domain,
             "capabilities": capabilities,
             "common_sense": self.common_sense_system.apply_common_sense(query, domain),
-            "token_usage": token_usage
+            "token_usage": token_usage.get("daily_tokens_used", 0)
         }
         
         # If security disclaimer exists, prepend it to the response

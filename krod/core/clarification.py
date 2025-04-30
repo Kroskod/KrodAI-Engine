@@ -41,22 +41,24 @@ class ClarificationSystem:
         """Load the prompt for generating clarification questions."""
         return """You are KROD, a specialized AI research assistant. Analyze this query for ambiguities or missing information:
 
-Query: {query}
+    Query: {query}
 
-Identify if any clarification is needed before you can provide a complete and accurate response. 
-Consider if there are:
+    If the question is clear and can be answered directly, respond with "NO_CLARIFICATION_NEEDED" and nothing else.
 
-1. Ambiguous terms or concepts that could have multiple interpretations
-2. Missing parameters or variables needed to solve the problem
-3. Unclear scope or constraints
-4. Implicit assumptions that should be verified
-5. Domain-specific context that needs clarification
+    Otherwise, identify if any clarification is needed before you can provide a complete and accurate response. 
+    Consider if there are:
 
-If clarification is needed, generate {max_questions} specific, direct questions to ask the user.
-If no clarification is needed, respond with "NO_CLARIFICATION_NEEDED".
+    1. Ambiguous terms or concepts that could have multiple interpretations
+    2. Missing parameters or variables needed to solve the problem
+    3. Unclear scope or constraints
+    4. Implicit assumptions that should be verified
+    5. Domain-specific context that needs clarification
 
-Clarification analysis:
-"""
+    If clarification is needed, generate {max_questions} specific, direct questions to ask the user.
+    If no clarification is needed, respond with "NO_CLARIFICATION_NEEDED".
+
+    Clarification analysis:
+    """
     
     def check_needs_clarification(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """
@@ -138,7 +140,20 @@ Clarification analysis:
             r"^can you",
             r"^define",
             r"^explain",
-            r"^tell me about"
+            r"^tell me about",
+            r"^what are",
+            r"^what does",
+            r"^what can",
+            r"^what will",
+            r"^what is the",
+            r"^explain",
+            r"^tell me about",
+            r"^why",
+            r"^how does",
+            r"^describe",
+            r"^give an example",
+            r"^list",
+            r"^name"
         ]
         
         for pattern in simple_patterns:
