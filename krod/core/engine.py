@@ -403,22 +403,22 @@ class KrodEngine:
                 self.knowledge_graph.add_concept(concept, domain)
     
     # Placeholder methods for module capabilities
-    def _optimize_code(self, query: str) -> str:
+    def _optimize_code(self, query: str, context=None) -> str:
         return "Code optimization capability will be implemented in a future version."
     
-    def _generate_code(self, query: str) -> str:
+    def _generate_code(self, query: str, context=None) -> str:
         return "Code generation capability will be implemented in a future version."
     
-    def _prove_theorem(self, query: str) -> str:
+    def _prove_theorem(self, query: str, context=None) -> str:
         return "Mathematical proof capability will be implemented in a future version."
     
-    def _create_model(self, query: str) -> str:
+    def _create_model(self, query: str, context=None) -> str:
         return "Mathematical modeling capability will be implemented in a future version."
     
-    def _generate_hypothesis(self, query: str) -> str:
+    def _generate_hypothesis(self, query: str, context=None) -> str:
         return "Hypothesis generation capability will be implemented in a future version."
     
-    def _design_experiment(self, query: str) -> str:
+    def _design_experiment(self, query: str, context=None) -> str:
         return "Experiment design capability will be implemented in a future version."
     
     def _initialize_llm_manager(self):
