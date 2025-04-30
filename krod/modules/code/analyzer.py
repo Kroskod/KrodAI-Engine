@@ -200,28 +200,33 @@ class CodeAnalyzer:
         """
         logger.info(f"Processing code query: {query[:50]}...")
         
+        # Extract code snippets
+        code_snippets = self.extract_code_snippets(query)
+        if not code_snippets:
+            # No code found, return a friendly message or route to general module
+            return {
+                "response": (
+                    "It looks like you asked a technical question, but I didn't find any code to analyze. "
+                    "If you want code analysis, please provide a code snippet. "
+                    "Otherwise, let me know if you want a general explanation or help with a concept!"
+                ),
+                "token_usage": 0,
+                "language": "unknown",
+                "task": "unknown",
+                "code_snippets_found": False
+            }
+        
         # Initialize response
         response_data = {
             "response": "",
             "token_usage": 0,
-            "language": "unknown",
-            "task": "unknown",
-            "code_snippets_found": False
+            "language": code_snippets[0]["language"],
+            "task": self.identify_task(query),
+            "code_snippets_found": True
         }
         
-        # Extract code snippets
-        code_snippets = self.extract_code_snippets(query)
-        response_data["code_snippets_found"] = len(code_snippets) > 0
-        
-        if code_snippets:
-            response_data["language"] = code_snippets[0]["language"]
-        
-        # Identify the task
-        task = self.identify_task(query)
-        response_data["task"] = task
-        
         # Build prompt based on task and code snippets
-        prompt_template = self._build_prompt_template(task, code_snippets)
+        prompt_template = self._build_prompt_template(response_data["task"], code_snippets)
         
         # Format prompt with query and context
         formatted_context = ""
@@ -264,7 +269,7 @@ class CodeAnalyzer:
         """
         # Base template
         base_template = """
-        You are KROD, an expert programming assistant with deep knowledge of software development.
+        "You are Krod, an expert AI research assistant with deep knowledge across science, technology, mathematics, research, and more. You provide clear, accurate, and insightful answers to a wide range of questions."
         
         USER QUERY:
         {query}
