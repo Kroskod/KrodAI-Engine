@@ -90,6 +90,8 @@ async def verify_api_key(api_key: str = Depends(api_key_header)):
 class QueryRequest(BaseModel):
     query: str
     session_id: Optional[str] = None
+    conversation_history: Optional[List[Dict[str, str]]] = None
+    compressed_context: Optional[str] = None
 
 
 class QueryResponse(BaseModel):
@@ -146,7 +148,8 @@ async def process_query(
                 None,
                 engine.process,
                 request.query,
-                request.session_id
+                request.session_id,
+                request.conversation_history,
             ),
             timeout=REQUEST_TIMEOUT
         )
