@@ -91,7 +91,7 @@ class QueryRequest(BaseModel):
     query: str
     session_id: Optional[str] = None
     conversation_history: Optional[List[Dict[str, str]]] = None
-    compressed_context: Optional[List[Dict[str, str]]] = None
+    compressed_context: Optional[Dict[str, Any]] = None
 
 
 class QueryResponse(BaseModel):
