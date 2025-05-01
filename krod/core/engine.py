@@ -570,7 +570,7 @@ class KrodEngine:
         
         response_data = {
             "response": final_response,
-            "context_id": context.id if hasattr(context, 'id') else None,
+            "session_id": context.id if hasattr(context, 'id') else None,
             "domain": domain,
             "capabilities": capabilities,
             "common_sense": self.common_sense_system.apply_common_sense(query, domain),
@@ -601,7 +601,7 @@ class KrodEngine:
             
             return {
                 "response": clarification_response,
-                "context_id": context.id if hasattr(context, 'id') else None,
+                "session_id": context.id if hasattr(context, 'id') else None,
                 "domain": "clarification",
                 "needs_clarification": True,
                 "token_usage":  self.token_manager.get_usage_stats().get("daily_tokens_used", 0)
