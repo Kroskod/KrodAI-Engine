@@ -32,7 +32,7 @@ class LLMManager:
         # Default OpenAI configuration
         self.default_config = {
             "default_provider": "openai",
-            "default_model": "gpt-4",
+            "default_model": "gpt-4o",
             "models": {
                 "gpt-4o": {
                     "max_tokens": 30000,

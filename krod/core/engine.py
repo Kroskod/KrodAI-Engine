@@ -162,6 +162,8 @@ class KrodEngine:
         Returns:
             Dictionary containing the response and metadata
         """
+        self.logger.info(f"START process: query={query!r}, context_id={context_id!r}, conversation_history={conversation_history!r}")
+
         if not hasattr(self, 'ready') or not self.ready:
             self.logger.error("KROD Engine is not ready")
             return {
@@ -183,6 +185,7 @@ class KrodEngine:
 
         greetings = ["hello", "hi", "hey", "ola", "greetings", "bonjour", "hola", "good morning", "good afternoon", "good evening", "good day", "good night", "namaste"]
         if any(greet in query.lower() for greet in greetings):
+            self.logger.info("Greeting detected, returning early.")
             return {
                 "response": "Hello! How can I assist you today?",
                 "session_id": context_id or "default",
@@ -193,43 +196,58 @@ class KrodEngine:
             }
         
         try:
-            # Get or create research context
+            self.logger.info("STEP 1: Getting or creating research context")
             context = self.research_context.get(context_id) if context_id else self.research_context.create()
+            self.logger.info(f"Context: {context}")
             
             # Initialize LLM if not already done
             if not hasattr(self, 'llm_manager'):
+                self.logger.info("STEP 2: Initializing LLM manager")
                 self.llm_manager = self._initialize_llm_manager()
             
             # Add conversation history to context if provided
             if conversation_history:
+                self.logger.info(f"STEP 3: Adding conversation history ({len(conversation_history)} messages)")
                 for message in conversation_history:
+                    self.logger.info(f"Adding message: {message}")
                     if message["role"] == "user":
                         context.add_query(message["content"])
                     else:
                         context.add_response(message["content"])
             
             # Add current query to context
+            self.logger.info("STEP 4: Adding current query to context")
             context.add_query(query)
             
             # Security validation
+            self.logger.info("STEP 5: Security validation")
             security_check = self.security_validator.validate_query(query)
+            self.logger.info(f"Security check: {security_check}")
             
             if security_check["restricted"]:
+                self.logger.info("Security restriction triggered")
                 return self._handle_security_restriction(security_check)
             
             # Analyze query to determine domain and capabilities
+            self.logger.info("STEP 6: Analyzing query")
             domain, capabilities = self._analyze_query(query)
+            self.logger.info(f"Domain: {domain}, Capabilities: {capabilities}")
             
             # Apply common sense
+            self.logger.info("STEP 7: Applying common sense system")
             common_sense = self.common_sense_system.apply_common_sense(query, domain)
+            self.logger.info(f"Common sense: {common_sense}")
             
             # Only check for clarification if ambiguity is high
             if common_sense.get("ambiguity", 0) > 0.5:
+                self.logger.info("Ambiguity detected, checking for clarification")
                 clarification_result = self.clarification_system.check_needs_clarification(query)
                 if clarification_result.get("needs_clarification", False):
+                    self.logger.info("Clarification needed, handling clarification")
                     return self._handle_clarification(query, context_id)
             
             # Build decision context
+            self.logger.info("STEP 8: Building decision context")
             decision_context = {
                 "query": query,
                 "security_level": security_check["security_level"],
@@ -241,24 +259,33 @@ class KrodEngine:
             }
             
             # Apply reasoning to enhance decision context
+            self.logger.info("STEP 9: Applying reasoning system")
             reasoning_result = self.reasoning_system.analyze_query(query, domain)
             decision_context["reasoning"] = reasoning_result
+            self.logger.info(f"Reasoning result: {reasoning_result}")
             
             # Make decision with validation
+            self.logger.info("STEP 10: Making decision")
             decision = self.decision_system.make_decision(decision_context)
+            self.logger.info(f"Decision: {decision}")
             if not self.decision_system.validate_decision(decision, decision_context):
+                self.logger.info("Decision not validated, using standard processing")
                 return self._standard_processing(query, context_id)
             
             # Process based on confidence
             if decision.confidence_level == DecisionConfidence.HIGH:
+                self.logger.info("High confidence decision, using autonomous processing")
                 return self._autonomous_processing(decision, query, context_id)
             
             # Get context for LLM
+            self.logger.info("STEP 11: Getting context for LLM")
             llm_context = self.research_context.get_context_for_llm(context.id)
             
             # Process the query using the appropriate modules
+            self.logger.info("STEP 12: Processing query using modules")
             results = []
             for capability in capabilities:
+                self.logger.info(f"Processing capability: {capability}")
                 domain_name, capability_name = capability.split('.')
                 if domain_name in self.modules:
                     module = self.modules[domain_name]
@@ -268,12 +295,16 @@ class KrodEngine:
                         results.append(result)
             
             # Integrate results
+            self.logger.info("STEP 13: Integrating results")
             final_response = self._integrate_results(results)
+            self.logger.info(f"Final response: {final_response}")
             
             # Extract knowledge for the knowledge graph
+            self.logger.info("STEP 14: Extracting knowledge")
             self._extract_knowledge(query, final_response, domain)
-            
-            # Add response to context
+
+             # Add response to context
+            self.logger.info("STEP 15: Adding response to context")
             context.add_response(final_response)
             
             # Get token usage information
@@ -299,10 +330,11 @@ class KrodEngine:
                 )
                 response_data["response"] = disclaimer + "\n\n" + response_data["response"]
             
+            self.logger.info("END process: returning response")
             return response_data
             
         except Exception as e:
-            self.logger.error(f"Error processing query: {str(e)}")
+            self.logger.error(f"Error processing query: {str(e)}", exc_info=True)
             return self._handle_error(str(e), context_id)
     
     def _analyze_query(self, query: str) -> tuple:
