@@ -197,7 +197,10 @@ class KrodEngine:
         
         try:
             self.logger.info("STEP 1: Getting or creating research context")
-            context = self.research_context.get(context_id) if context_id else self.research_context.create()
+            context = self.research_context.get(context_id) if context_id else None
+            if context is None:
+                self.logger.info(f"Context for id {context_id} not found, creating new context.")
+                context = self.research_context.create()
             self.logger.info(f"Context: {context}")
             
             # Initialize LLM if not already done
