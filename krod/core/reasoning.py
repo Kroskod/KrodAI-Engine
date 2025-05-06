@@ -79,7 +79,8 @@ class ReasoningSystem:
         return {
             "used_reasoning": True,
             "reasoning": internal_reasoning,
-            
+            "final_response": final_response,
+            # "processing_time": time.time()
         }       
     
     def _load_internal_reasoning_prompt(self) -> str:
