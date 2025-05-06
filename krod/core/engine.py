@@ -8,7 +8,7 @@ import importlib
 import pkgutil
 from dotenv import load_dotenv
 import os
-
+import re
 from krod.core.llm_manager import LLMManager
 from krod.core.research_context import ResearchContext
 from krod.core.knowledge_graph import KnowledgeGraph
@@ -36,6 +36,22 @@ from .decision import DecisionSystem, Decision
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+
+import re
+
+def is_greeting(query: str) -> bool:
+    greetings = [
+        r"^hello[\s!,.]*$", r"^hi[\s!,.]*$", r"^hey[\s!,.]*$", r"^ola[\s!,.]*$",
+        r"^greetings[\s!,.]*$", r"^bonjour[\s!,.]*$", r"^hola[\s!,.]*$",
+        r"^good (morning|afternoon|evening|day|night)[\s!,.]*$", r"^namaste[\s!,.]*$"
+    ]
+    query_clean = query.strip().lower()
+    # Only treat as greeting if it's very short (e.g., 1-3 words) or matches a greeting pattern
+    if len(query_clean.split()) <= 3:
+        for pattern in greetings:
+            if re.match(pattern, query_clean):
+                return True
+    return False
 
 class KrodEngine:
     """
@@ -142,7 +158,7 @@ class KrodEngine:
         }
         
         return modules
-    
+
     def process(self, 
                 query: str, 
                 context_id: Optional[str] = None,
@@ -183,8 +199,7 @@ class KrodEngine:
             }
         self.logger.info("Processing query: %s", query)
 
-        greetings = ["hello", "hi", "hey", "ola", "greetings", "bonjour", "hola", "good morning", "good afternoon", "good evening", "good day", "good night", "namaste"]
-        if any(greet in query.lower() for greet in greetings):
+        if is_greeting(query):
             self.logger.info("Greeting detected, returning early.")
             return {
                 "response": "Hello! How can I assist you today?",
@@ -266,6 +281,11 @@ class KrodEngine:
             reasoning_result = self.reasoning_system.analyze_query(query, domain)
             decision_context["reasoning"] = reasoning_result
             self.logger.info(f"Reasoning result: {reasoning_result}")
+
+            # can format the response here: (v0.1.2)
+            reasoning_text = reasoning_result.get("reasoning", "")
+            answer_text = reasoning_result.get("final_response", "")
+            combined_response = f"## Reasoning Process\n{reasoning_text}\n\n## Answer\n{answer_text}"
             
             # Make decision with validation
             self.logger.info("STEP 10: Making decision")
@@ -299,7 +319,7 @@ class KrodEngine:
             
             # Integrate results
             self.logger.info("STEP 13: Integrating results")
-            final_response = self._integrate_results(results)
+            final_response = combined_response if answer_text else self._integrate_results(results)
             self.logger.info(f"Final response: {final_response}")
             
             # Extract knowledge for the knowledge graph
