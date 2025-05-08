@@ -251,10 +251,20 @@ class KrodEngine:
             domain, capabilities = self._analyze_query(query)
             self.logger.info(f"Domain: {domain}, Capabilities: {capabilities}")
             
-            # Apply common sense
-            self.logger.info("STEP 7: Applying common sense system")
+            # # Apply common sense
             common_sense = self.common_sense_system.apply_common_sense(query, domain)
-            self.logger.info(f"Common sense: {common_sense}")
+            
+            if common_sense.get("seek_clarification"):
+                self.logger.info("Common sense suggests clarification is needed.")
+                return self._handle_clarification(query, context_id if hasattr(self, 'context_id') else None)
+
+            if not common_sense.get("use_reasoning", True):
+                self.logger.info("Common sense suggests direct response (no deep reasoning).")
+                return self._standard_processing(query, context_id if hasattr(self, 'context_id') else None)   
+
+            # self.logger.info("STEP 7: Applying common sense system")
+            # common_sense = self.common_sense_system.apply_common_sense(query, domain)
+            # self.logger.info(f"Common sense: {common_sense}")
             
             # Only check for clarification if ambiguity is high
             if common_sense.get("ambiguity", 0) > 0.5:
