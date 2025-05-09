@@ -45,3 +45,6 @@ class SerpAPIProvider(SearchProvider):
 
         self.logger = logging.getLogger("krod.web_search.serpapi")
         self.api_key = api_key or os.getenv("SERPAPI_KEY")
+        if not self.api_key:
+            self.logger.warning("No SerpAPI key provided. Please set SERPAPI_KEY environment variable.")
+        self.engine = engine
