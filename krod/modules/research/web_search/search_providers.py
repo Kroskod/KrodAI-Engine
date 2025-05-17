@@ -62,3 +62,54 @@ class SerpAPIProvider(SearchProvider):
             A list of dictionaries containing the search results with title, url, and snippet
         """
         
+        if not self.api_key:
+            self.logger.error("Cannot search without API key")
+            return []
+
+        params = {
+            "q": query, 
+            "api_key": self.api_key,
+            "engine": self.engine,
+            "num": num_results,
+            "location": "Austin, Texas, United States",
+            "google_domain": "google.co.uk",
+            "gl": "uk",
+            "hl": "en"
+        }
+
+        try:
+            response = requests.get(self.base_url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+
+            # Extract organic results from the response
+            organic_results = data.get("organic_results", [])
+
+            # Format results 
+            formatted_results = []
+            for result in organic_results[:num_results]:
+                formatted_results.append({
+                    "title": result.get("title", ""),
+                    "url": result.get("link", ""),
+                    "snippet": result.get("snippet", ""),
+                    "position": result.get("position", 0),
+                    "source": "serpapi"
+                })
+
+            return formatted_results
+        
+        except requests.RequestException as e:
+            self.logger.error(f"Error searching with SerpAPI: {str(e)}")
+            return []
+        
+        except ValueError as e:
+            self.logger.error(f"Error parsing SerpAPI response: {str(e)}")
+            return []
+        
+class GoogleSearchProvider(SearchProvider):
+    """
+    Search provider using Google Custom Search API
+    """
+
+    
+    
