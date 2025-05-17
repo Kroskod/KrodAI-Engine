@@ -48,3 +48,17 @@ class SerpAPIProvider(SearchProvider):
         if not self.api_key:
             self.logger.warning("No SerpAPI key provided. Please set SERPAPI_KEY environment variable.")
         self.engine = engine
+        self.base_url = "https://serpapi.com/search"
+        
+    def search(self, query: str, num_results: int = 5) -> List[Dict[str, Any]]:
+        """
+        Search the web
+
+        Args:
+            query: The query to search for 
+            num_results: Number of results to return
+
+        Returns:
+            A list of dictionaries containing the search results with title, url, and snippet
+        """
+        
