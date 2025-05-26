@@ -147,7 +147,7 @@ class BingSearchProvider(SearchProvider):
             "q": query,
             "count": num_results,
             "responseFilter": "Webpages",
-            "textDecorations": false,
+            "textDecorations": False,
             "textFormat": "HTML"
         }
 
