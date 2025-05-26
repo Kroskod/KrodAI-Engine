@@ -112,7 +112,7 @@ class BingSearchProvider(SearchProvider):
         Initialize Bing Search provider.
 
         Args:
-            api_key: Bing Search API key (fall back to BING_SEARCH_API_KEY env var)
+            api_key: Bing Search API key (fall back to BING_SEARCH_KEY env var)
         """
         
     # TODO: Implement Bing Search Provider

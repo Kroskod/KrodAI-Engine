@@ -3,7 +3,7 @@ Web search module for Krod.
 """
 
 from .web_search_manager import WebSearchManager
-from .search_providers import SearchProvider, SerpAPIProvider, BingSearchProvider
+from .search_provider import SearchProvider, SerpAPIProvider, BingSearchProvider
 from .content_extractor import ContentExtractor
 
 __all__ = [
