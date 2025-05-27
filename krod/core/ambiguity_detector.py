@@ -46,4 +46,56 @@ class AmbiguityDetector:
         # confidence threshhold for ambiguity detection
         self.confidence_threshold = self.config.get("confidence_threshold", 0.3)
 
+    def detect_ambiguity(self, reasoning: str) -> Dict[str, Any]:
+        """
+        Detect ambiguity in reasoning output.
+        
+        Args:
+            reasoning: The reasoning output to analyze
+            
+        Returns:
+            Dictionary with ambiguity detection results
+        """
+        # Count matches for each ambiguity pattern
+        matches = []
+        for pattern in self.ambiguity_patterns:
+            found = pattern.findall(reasoning)
+            if found:
+                matches.extend(found)
+        
+        # Calculate ambiguity score (simple heuristic)
+        # More sophisticated scoring could be implemented
+        ambiguity_score = min(1.0, len(matches) / 10.0)
+        
+        # Extract potential clarification questions
+        clarification_questions = self._extract_clarification_questions(reasoning)
+        
+        return {
+            "is_ambiguous": ambiguity_score >= self.ambiguity_threshold,
+            "ambiguity_score": ambiguity_score,
+            "ambiguity_matches": matches,
+            "clarification_questions": clarification_questions
+        }
     
+    def _extract_clarification_questions(self, reasoning: str) -> List[str]:
+        """
+        Extract potential clarification questions from reasoning.
+        
+        Args:
+            reasoning: The reasoning output
+            
+        Returns:
+            List of potential clarification questions
+        """
+        # Simple extraction of sentences ending with question marks
+        question_pattern = re.compile(r'[^.!?]*\?')
+        questions = question_pattern.findall(reasoning)
+        
+        # Filter and clean up questions
+        cleaned_questions = []
+        for q in questions:
+            q = q.strip()
+            if len(q) > 10 and q not in cleaned_questions:  # Avoid duplicates and very short questions
+                cleaned_questions.append(q)
+        
+        return cleaned_questions
