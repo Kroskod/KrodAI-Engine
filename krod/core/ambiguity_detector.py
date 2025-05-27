@@ -3,6 +3,7 @@ Ambiguity Detector Module
 """
 
 import logging
+import re
 from typing import List, Dict, Any, Optional
 
 class AmbiguityDetector:
@@ -40,11 +41,11 @@ class AmbiguityDetector:
             r"(need|requires) (clarification|clarifying)"
         ])
         
-        # Compile regular expression for efficieny
-        self.ambiguity_pattern = [re.compile(pattern, re.IGNORECASE) for pattern in self.ambiguity_indicators]
+        # Compile regular expression for efficiency
+        self.ambiguity_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in self.ambiguity_indicators]
 
-        # confidence threshhold for ambiguity detection
-        self.confidence_threshold = self.config.get("confidence_threshold", 0.3)
+        # Confidence threshold for ambiguity detection
+        self.ambiguity_threshold = self.config.get("ambiguity_threshold", 0.3)
 
     def detect_ambiguity(self, reasoning: str) -> Dict[str, Any]:
         """
