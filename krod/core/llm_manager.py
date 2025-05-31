@@ -4,12 +4,13 @@ KROD LLM Manager - Manages interactions with language models.
 
 import logging
 import time
-import json
 import os
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional
 import requests
 from krod.core.token_manager import TokenManager
 from krod.core.vector_store import VectorStore
+import openai
+from .prompts import PromptManager
 
 class LLMManager:
     """
@@ -19,14 +20,13 @@ class LLMManager:
     handling prompting, caching, and response processing.
     """
     
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
         Initialize the LLM Manager.
         
         Args:
-            config: Configuration for LLM interactions
+            config: Configuration dictionary
         """
-        self.logger = logging.getLogger("krod.llm_manager")
         self.config = config or {}
         
         # Default OpenAI configuration
@@ -69,13 +69,179 @@ class LLMManager:
         self.cache = {}
         self.cache_enabled = self.config.get("cache_enabled", True)
         
-        # Load prompt templates
+        # Load prompt templates (legacy)
         self.prompt_templates = self._load_prompt_templates()
         
         # Initialize VectorStore
         self.vector_store = VectorStore(self.config.get("vector_store", {}))
         
-        self.logger.info("LLM Manager initialized")
+        # Initialize the prompt manager for multi-stage prompting
+        self.prompt_manager = PromptManager()
+
+
+    def generate_structured(
+        self, 
+        prompt_type: str,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Generate a response using the specified prompt type from the prompt manager.
+        
+        Args:
+            prompt_type: Type of prompt to use (e.g., 'reasoning', 'clarification')
+            **kwargs: Variables to format into the prompt
+            
+        Returns:
+            Dictionary containing the generated response and metadata
+        """
+        try:
+            # Get the formatted prompt from the prompt manager
+            prompt = self.prompt_manager.get_prompt(prompt_type, **kwargs)
+            
+            # Call the LLM with the formatted prompt
+            response = self._call_openai_chat(
+                system_message=prompt["system"],
+                user_message=prompt["user"],
+                temperature=prompt.get("temperature", 0.7),
+                max_tokens=prompt.get("max_tokens")
+            )
+            
+            # Extract and return the response
+            return {
+                "success": True,
+                "text": response["choices"][0]["message"]["content"],
+                "usage": response.get("usage", {}),
+                "model": response.get("model", self.config["default_model"]),
+                "prompt_type": prompt_type
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "prompt_type": prompt_type
+            }
+
+    def _call_openai_chat(
+        self, 
+        system_message: str, 
+        user_message: str, 
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Internal method to call the OpenAI Chat API.
+        
+        Args:
+            system_message: System prompt
+            user_message: User prompt
+            temperature: Temperature for generation
+            max_tokens: Maximum tokens to generate
+            
+        Returns:
+            Raw API response
+        """
+        model = self.config["default_model"]
+        
+        params = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message}
+            ],
+            "temperature": temperature
+        }
+        
+        if max_tokens:
+            params["max_tokens"] = max_tokens
+            
+        # Set API key
+        openai.api_key = self.api_keys.get("openai")
+        
+        return openai.ChatCompletion.create(**params)
+    
+    # New methods for multi-stage prompting
+    def generate_reasoning(
+        self, 
+        query: str, 
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate reasoning for a query.
+        
+        Args:
+            query: The user's query
+            context: Additional context (optional)
+            
+        Returns:
+            Dictionary containing the reasoning
+        """
+        context_str = json.dumps(context) if context else ""
+        return self.generate_structured("reasoning", query=query, context=context_str)
+    
+    def generate_clarification(
+        self, 
+        query: str, 
+        reasoning: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate clarification questions for a query.
+        
+        Args:
+            query: The user's query
+            reasoning: Previous reasoning (optional)
+            
+        Returns:
+            Dictionary containing clarification analysis
+        """
+        return self.generate_structured("clarification", query=query, reasoning=reasoning or "")
+    
+    def generate_synthesis(
+        self, 
+        query: str, 
+        reasoning: str, 
+        clarifications: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Synthesize a final answer based on reasoning and clarifications.
+        
+        Args:
+            query: The original query
+            reasoning: The reasoning process
+            clarifications: Clarification information (optional)
+            context: Additional context (optional)
+            
+        Returns:
+            Dictionary containing the synthesized answer
+        """
+        context_str = json.dumps(context) if context else ""
+        return self.generate_structured(
+            "synthesis", 
+            query=query, 
+            reasoning=reasoning, 
+            clarifications=clarifications or "", 
+            context=context_str
+        )
+    
+    def generate_reflection(
+        self, 
+        query: str, 
+        reasoning: str, 
+        answer: str
+    ) -> Dict[str, Any]:
+        """
+        Generate a reflection on the reasoning process and answer.
+        
+        Args:
+            query: The original query
+            reasoning: The reasoning process
+            answer: The final answer
+            
+        Returns:
+            Dictionary containing the reflection
+        """
+        return self.generate_structured("reflection", query=query, reasoning=reasoning, answer=answer)
     
     def _load_api_keys(self) -> Dict[str, str]:
         """
