@@ -4,18 +4,20 @@ KROD Reasoning System - Implements chain-of-thought and reasoning explanation ca
 
 import logging
 from typing import Dict, Any, List, Optional
-import re
+# import re
 import time
+from .llm_manager import LLMManager
+# from .prompt import PromptManager
 
 class ReasoningSystem:
     """
-    Provides explicit reasoning capabilities for KROD.
+    Provides chain-of-thought reasoning capabilities for Krod.
     
-    This class implements both internal chain-of-thought reasoning and
-    explicit reasoning explanations in responses.
+    This class implements explicit reasoning and explanation generation
+    for complex queries, allowing Krod to show its work.
     """
     
-    def __init__(self, llm_manager, config: Dict[str, Any] = None):
+    def __init__(self, llm_manager: LLMManager, config: Dict[str, Any] = None):
         """
         Initialize the reasoning system.
         
@@ -28,32 +30,29 @@ class ReasoningSystem:
         self.llm_manager = llm_manager
 
         
+        # Configure reasoning settings
+        self.always_reason = self.config.get("always_reason", False)
+        self.reasoning_threshold = self.config.get("reasoning_threshold", 0.6)
+        self.reasoning_temperature = self.config.get("reasoning_temperature", 0.7)
+        self.max_reasoning_tokens = self.config.get("max_reasoning_tokens", 2000)
         
         # Load reasoning prompts
-        self.reasoning_prompts = {
-            "internal": self._load_internal_reasoning_prompt(),
-            "explanation": self._load_explanation_reasoning_prompt()
-        }
-        
-        # Configure reasoning settings
-        self.always_reason = self.config.get("always_reason", True)
-        self.max_reasoning_tokens = self.config.get("max_reasoning_tokens", 1000)
-        self.reasoning_temperature = self.config.get("reasoning_temperature", 0.7)
+        self.reasoning_prompts = self._load_reasoning_prompts()
         
         self.logger.info("Reasoning system initialized")
 
-    def analyze_query(self, query: str, domain: Optional[str] = None) -> Dict[str, Any]:
+    def analyze_query_legacy(self, query: str, domain: Optional[str] = None) -> Dict[str, Any]:
         """
-        Analyze a query and return a detailed explanation of the reasoning process and answer.
-
+        Analyze a query and provide detailed reasoning and explanation.
+        
         Args:
             query: The user's query
-            domain: The detected domain (optional)
-
+            domain: Optional domain for domain-specific reasoning
+            
         Returns:
-            Dictionary with reasoning and final response
+            Dictionary with reasoning, explanation, and response
         """
-        # Step 1: Generate internal reasoning
+        # Generate internal reasoning
         prompt_internal = self.reasoning_prompts["internal"].format(query=query)
         internal_result = self.llm_manager.generate(
             prompt_internal,
@@ -82,6 +81,100 @@ class ReasoningSystem:
             "final_response": final_response,
             # "processing_time": time.time()
         }       
+    
+    def analyze_query(
+        self, 
+        query: str, 
+        context: Optional[Dict[str, Any]] = None,
+        domain: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Analyze a query and provide detailed reasoning and explanation.
+        
+        Args:
+            query: The user's query
+            context: Optional context for the query
+            domain: Optional domain for domain-specific reasoning
+            
+        Returns:
+            Dictionary with reasoning, explanation, and response
+        """
+        start_time = time.time()
+        self.logger.debug("Generating reasoning for query: %s", query)
+        
+        # Use the new multi-stage prompting pipeline
+        reasoning_result = self.llm_manager.generate_reasoning(
+            query=query,
+            context=context or {},
+            domain=domain
+        )
+
+        if not reasoning_result.get("success", False):
+            return {
+                "success": False,
+                "error": f"Failed to generate reasoning: {reasoning_result.get('error')}",
+                "reasoning": ""
+            }
+        
+        # Extract the reasoning text
+        reasoning_text = reasoning_result.get("text", "")
+        
+        # Extract key points from the reasoning
+        key_points = self.extract_key_points(reasoning_text)
+        
+        processing_time = time.time() - start_time
+        self.logger.debug("Reasoning completed in %.2f seconds", processing_time)
+        
+        return {
+            "used_reasoning": True,
+            "reasoning": reasoning_text,
+            "key_points": key_points,
+            "final_response": reasoning_text,  # In the new pipeline, reasoning includes the final response
+            "processing_time": processing_time,
+            "usage": reasoning_result.get("usage", {}),
+            "model": reasoning_result.get("model", "") 
+        }
+    
+    def extract_key_points(self, reasoning_text: str) -> List[str]:
+        """
+        Extract key points from the reasoning text.
+        
+        Args:
+            reasoning_text: The full reasoning text
+            
+        Returns:
+            List of key points extracted from the reasoning
+        """
+        # Simple extraction based on line breaks and bullet points
+        # In a more sophisticated implementation, this could use NLP techniques
+        
+        lines = reasoning_text.split('\n')
+        key_points = []
+        
+        for line in lines:
+            line = line.strip()
+            # Look for bullet points, numbered lists, or lines starting with "Key point:"
+            if (line.startswith('•') or 
+                line.startswith('-') or 
+                line.startswith('*') or 
+                (line and line[0].isdigit() and line[1:3] in ['. ', ') ']) or
+                line.lower().startswith('key point:')):
+                
+                # Clean up the line
+                clean_line = line
+                for prefix in ['•', '-', '*', 'Key point:', 'key point:']:
+                    if clean_line.startswith(prefix):
+                        clean_line = clean_line[len(prefix):].strip()
+                        break
+                
+                # If it starts with a number followed by . or ), remove that too
+                if clean_line and clean_line[0].isdigit() and len(clean_line) > 2 and clean_line[1:3] in ['. ', ') ']:
+                    clean_line = clean_line[3:].strip()
+                
+                if clean_line:
+                    key_points.append(clean_line)
+        
+        return key_points
     
     def _load_internal_reasoning_prompt(self) -> str:
         """Load the prompt template for internal reasoning."""
@@ -116,7 +209,7 @@ Format your response with:
 Ensure your reasoning is transparent and your conclusion is well-supported.
 """
     
-    def apply_reasoning(self, query: str, domain: str) -> Dict[str, Any]:
+    def apply_reasoning(self, query: str, domain: str = None) -> Dict[str, Any]:
         """
         Apply reasoning to a query and produce a reasoned response.
         
@@ -134,31 +227,49 @@ Ensure your reasoning is transparent and your conclusion is well-supported.
         
         # If reasoning is disabled, return early
         if not should_reason and not self.always_reason:
-            self.logger.debug("Skipping reasoning for query: %s", query[:50])
+            self.logger.debug("Skipping reasoning for simple query")
             return {
                 "used_reasoning": False,
-                "reasoning": None,
-                "final_response": None,
+                "reasoning": "",
+                "final_response": query,  # Just echo the query for now
                 "processing_time": time.time() - start_time
             }
         
-        # Step 2: Generate internal reasoning
-        internal_reasoning = self._generate_internal_reasoning(query, domain)
+        # Step 2: Use the new multi-stage prompting pipeline
+        reasoning_result = self.llm_manager.generate_reasoning(
+            query=query,
+            context={},
+            domain=domain
+        )
         
-        # Step 3: Generate final response with explanation
-        final_response = self._generate_explanation(query, internal_reasoning, domain)
+        if not reasoning_result.get("success", False):
+            return {
+                "success": False,
+                "error": f"Failed to generate reasoning: {reasoning_result.get('error')}",
+                "reasoning": "",
+                "used_reasoning": False
+            }
         
-        # Step 4: Format the response appropriately
-        formatted_response = self._format_reasoned_response(internal_reasoning, final_response)
+        # Extract the reasoning text
+        reasoning_text = reasoning_result.get("text", "")
+        
+        # Extract key points from the reasoning
+        key_points = self.extract_key_points(reasoning_text)
+        
+        # Format the response appropriately
+        formatted_response = self._format_reasoned_response(reasoning_text, reasoning_text)
         
         processing_time = time.time() - start_time
         self.logger.debug("Reasoning completed in %.2f seconds", processing_time)
         
         return {
             "used_reasoning": True,
-            "reasoning": internal_reasoning,
+            "reasoning": reasoning_text,
+            "key_points": key_points,
             "final_response": formatted_response,
-            "processing_time": processing_time
+            "processing_time": processing_time,
+            "usage": reasoning_result.get("usage", {}),
+            "model": reasoning_result.get("model", "")
         }
     
     def _should_apply_reasoning(self, query: str, domain: str) -> bool:
@@ -258,3 +369,15 @@ Internal Reasoning: {reasoning}
         # In a more sophisticated implementation, we might format this differently
         
         return response
+    
+    def _load_reasoning_prompts(self) -> Dict[str, str]:
+        """
+        Load the reasoning prompt templates.
+        
+        Returns:
+            Dictionary of prompt templates
+        """
+        return {
+            "internal": self._load_internal_reasoning_prompt(),
+            "explanation": self._load_explanation_reasoning_prompt()
+        }

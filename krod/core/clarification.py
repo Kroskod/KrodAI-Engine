@@ -7,6 +7,8 @@ I call it Let Me Understand This.
 import logging
 from typing import Dict, Any, List, Optional
 import re
+import json
+from .llm_manager import LLMManager
 
 class ClarificationSystem:
     """
@@ -60,107 +62,117 @@ class ClarificationSystem:
     Clarification analysis:
     """
     
-    def check_needs_clarification(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    def check_needs_clarification(
+    self, 
+    query: str,
+    reasoning: Optional[str] = None,
+    context: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
         """
-        Check if a query needs clarification and generate clarification questions.
+        Check if a query needs clarification using the new multi-stage pipeline.
         
         Args:
             query: The user's query
-            context: Optional conversation context
+            reasoning: Previous reasoning (optional)
+            context: Additional context (optional)
             
         Returns:
-            Dictionary with clarification status and questions
+            Dictionary containing clarification status and questions
         """
-        self.logger.debug("Checking if query needs clarification: %s", query[:50])
-        
         # Skip clarification for simple queries
         if self._is_simple_query(query):
             return {
                 "needs_clarification": False,
-                "questions": []
+                "questions": [],
+                "reason": "Query is simple and clear"
             }
         
-        # Generate clarification analysis
-        prompt = self.clarification_prompt.format(
-            query=query,
-            max_questions=self.max_questions
-        )
+        # Generate clarification analysis using the new method
+        response = self.llm_manager.generate_clarification(query, reasoning)
         
-        result = self.llm_manager.generate(
-            prompt,
-            temperature=0.4,  # Low temperature for focused analysis
-            max_tokens=500
-        )
-        
-        analysis = result["text"]
-        
-        # Check if clarification is needed
-        if "NO_CLARIFICATION_NEEDED" in analysis:
+        if not response.get("success", False):
             return {
+                "success": False,
+                "error": f"Failed to generate clarification: {response.get('error')}",
                 "needs_clarification": False,
                 "questions": []
             }
         
-        # Extract questions from the analysis
-        questions = self._extract_questions(analysis)
-        
-        if not questions:
-            return {
-                "needs_clarification": False,
-                "questions": []
-            }
+        # Parse the response to extract clarification status and questions
+        clarification_analysis = self._parse_clarification_response(response["text"])
         
         return {
-            "needs_clarification": True,
-            "questions": questions[:self.max_questions],
-            "analysis": analysis
+            "success": True,
+            "needs_clarification": clarification_analysis["needs_clarification"],
+            "questions": clarification_analysis["questions"],
+            "analysis": clarification_analysis["analysis"],
+            "usage": response.get("usage", {})
         }
     
     def _is_simple_query(self, query: str) -> bool:
         """
-        Determine if a query is simple enough to skip clarification.
+        Determine if a query is simple enough to not need clarification.
         
         Args:
-            query: The user's query
+            query: The query to check
             
         Returns:
-            Boolean indicating if the query is simple
+            True if the query is simple, False otherwise
         """
-        # Skip clarification for short queries
-        if len(query.split()) < 5:
+        # Simple heuristic: short queries with common question words
+        simple_indicators = ["what", "when", "where", "who", "how many", "how much"]
+        query_lower = query.lower()
+        
+        # Check if it's a simple question
+        if len(query) < 50 and any(indicator in query_lower for indicator in simple_indicators):
             return True
-        
-        # Skip clarification for direct questions
-        simple_patterns = [
-            r"^what is",
-            r"^who is",
-            r"^when was",
-            r"^where is",
-            r"^how to",
-            r"^can you",
-            r"^define",
-            r"^explain",
-            r"^tell me about",
-            r"^what are",
-            r"^what does",
-            r"^what can",
-            r"^what will",
-            r"^what is the",
-            r"^explain",
-            r"^tell me about",
-            r"^why",
-            r"^how does",
-            r"^describe",
-            r"^give an example",
-            r"^list",
-            r"^name"
-        ]
-        
-        for pattern in simple_patterns:
-            if re.match(pattern, query.lower()):
-                return True
-        
+            
+        # Check if it's a command
+        command_indicators = ["show me", "tell me", "explain", "define", "calculate"]
+        if any(query_lower.startswith(cmd) for cmd in command_indicators):
+            return True
+            
         return False
+
+    def _parse_clarification_response(self, response: str) -> Dict[str, Any]:
+        """
+        Parse the LLM response to extract clarification information.
+        
+        Args:
+            response: The LLM response
+            
+        Returns:
+            Dictionary with clarification status and questions
+        """
+        lines = response.split('\n')
+        needs_clarification = False
+        questions = []
+        analysis = ""
+        
+        # Extract needs_clarification status
+        for line in lines:
+            if "yes" in line.lower() and any(x in line.lower() for x in ["ambiguous", "missing", "unclear"]):
+                needs_clarification = True
+                break
+        
+        # Extract questions
+        for line in lines:
+            line = line.strip()
+            # Check if it's a question (ends with ?)
+            if line.endswith('?'):
+                # Remove leading numbers or bullets
+                if line and any(line[0].isdigit() or line[0] in '-*•'):
+                    line = line[2:].strip() if len(line) > 2 else line
+                questions.append(line)
+        
+        # Extract analysis 
+        analysis = response
+    
+        return {
+            "needs_clarification": needs_clarification,
+            "questions": questions,
+            "analysis": analysis
+        }
     
     def _extract_questions(self, analysis: str) -> List[str]:
         """
