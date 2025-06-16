@@ -7,6 +7,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from krod.core.engine import KrodEngine
+from krod.interfaces.commands.vector_store import vector_store as vector_store_commands
 
 class KrodCLI:
     """
@@ -33,9 +34,9 @@ class KrodCLI:
         welcome = """
     ╔═════════════════════════════════════════════════════════╗
     ║                                                         ║
-    ║   KROD - Knowledge-Reinforced Operational Developer     ║
+    ║   Krod AI - Research Amplification Partner              ║
     ║                                                         ║
-    ║   Version: 0.1.0                                        ║
+    ║   Version: 0.2.0                                        ║
     ║   Type 'help' for a list of commands                    ║
     ║   Type 'quit' to exit                                   ║
     ║                                                         ║
@@ -59,30 +60,22 @@ class KrodCLI:
         elif command.lower() == 'help':
             self.show_help()
             return True
-            
-        # Process as query
-        try:
-            result = self.engine.process(command, self.current_session_id)
-            
-            # Display response in a nice panel
-            self.console.print(Panel(
-                result["response"],
-                title="KROD Response",
-                border_style="blue"
-            ))
-            
-            # Show token usage if available
-            if "token_usage" in result:
-                print(f"\nToken usage: {result['token_usage']}")
-            
-            # Add to history
-            self.history.append({"query": command, "response": result})
-            
-        except Exception as e:
-            print(f"Error processing query: {str(e)}")
-            self.logger.error(f"Query error: {str(e)}", exc_info=True)
-        
-        return True
+
+        elif command.startswith('vector_store'):
+            try:
+                import sys
+                from click.testing import CliRunner
+                runner = CliRunner()
+                args = command.split()[1:]
+                result = runner.invoke(vector_store_commands, args)
+                print(result.output)
+                if result.exception:
+                    print(f"Error: {str(result.exception)}", file=sys.stderr)
+                return True
+            except Exception as e:
+                print(f"Error executing vector store command: {str(e)}", file=sys.stderr)
+                return True
+
 
     def show_help(self):
         """Show help information."""
@@ -91,6 +84,7 @@ class KrodCLI:
         ------------------
         help         : Show this help message
         quit/exit   : Exit KROD
+        vector_store: Manage vector store operations
         
         You can type your queries directly at the prompt.
         

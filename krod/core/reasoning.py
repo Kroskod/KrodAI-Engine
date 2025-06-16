@@ -105,8 +105,8 @@ class ReasoningSystem:
         # Use the new multi-stage prompting pipeline
         reasoning_result = self.llm_manager.generate_reasoning(
             query=query,
-            context=context or {},
-            domain=domain
+            context=context or {}
+            # domain=domain
         )
 
         if not reasoning_result.get("success", False):

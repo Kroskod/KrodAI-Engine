@@ -87,87 +87,135 @@ class VectorStore:
         return self.add_documents([text], [metadata or {}])[0]
 
     def add_documents(
-        self,
-        texts: Union[str, List[str]],
+        self, 
+        texts: Union[str, List[str]], 
         metadatas: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None,
-        ids: Optional[List[str]] = None
+        ids: Optional[List[Union[str, int]]] = None
     ) -> List[str]:
         """
-        Add multiple documents to the vector store.
+        Add multiple documents to the vector store with optional metadata.
         
         Args:
             texts: Single text or list of texts to add
             metadatas: Optional metadata dict or list of dicts
-            ids: Optional list of document IDs
+            ids: Optional list of IDs for the documents
             
         Returns:
             List of document IDs
         """
-        # Handle single document case
         if isinstance(texts, str):
             texts = [texts]
             
-        # Input validation
         if not texts:
             raise ValueError("Texts must not be empty")
             
-        for text in texts:
-            if not isinstance(text, str) or not text:
-                raise ValueError("Each text must be a non-empty string")
-            
-        # Handle metadata
+        # Handle single metadata dict case
         if metadatas is None:
-            metadatas = [{} for _ in texts]
+            metadatas = [{}] * len(texts)
         elif isinstance(metadatas, dict):
             metadatas = [metadatas] * len(texts)
             
-        if len(metadatas) != len(texts):
-            raise ValueError("Number of metadata items must match number of texts")
+        if len(texts) != len(metadatas):
+            raise ValueError("Texts and metadatas must have the same length")
             
-        # Generate IDs if not provided
-        if ids is None:
-            ids = [f"doc_{uuid4()}" for _ in texts]
-        elif len(ids) != len(texts):
-            raise ValueError("Number of IDs must match number of texts")
+        # Generate embeddings in batches for efficiency
+        batch_size = 32  # Adjust based on your needs
+        points = []
+        generated_ids = []
+        
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i + batch_size]
+            batch_metadatas = metadatas[i:i + batch_size]
+            batch_ids = None if ids is None else ids[i:i + batch_size]
             
-        try:
             # Generate embeddings
             embeddings = self.embedding_model.encode(
-                texts,
-                show_progress_bar=len(texts) > 10,
+                batch_texts,
+                show_progress_bar=len(batch_texts) > 5,
                 convert_to_numpy=True
             )
             
-            # Create points for Qdrant
-            points = []
-            for i, (text, metadata, embedding) in enumerate(zip(texts, metadatas, embeddings)):
-                # Create a unique Qdrant point ID
-                point_id = i + int(uuid4().int % 10000000)  # Ensure unique IDs
-                
+            # Create points
+            for j, (text, embedding, metadata) in enumerate(zip(batch_texts, embeddings, batch_metadatas)):
+                point_id = batch_ids[j] if batch_ids else str(uuid4())
                 point = PointStruct(
                     id=point_id,
                     vector=embedding.tolist(),
                     payload={
+                        "document_id": point_id,
                         "text": text,
-                        "metadata": metadata,
-                        "document_id": ids[i]
+                        "metadata": metadata
                     }
                 )
                 points.append(point)
-            
-            # Upload to Qdrant
+                generated_ids.append(point_id)
+        
+        # Upload to Qdrant
+        if points:
             self.client.upsert(
                 collection_name=self.collection_name,
                 points=points,
                 wait=True
             )
+            self.logger.info(f"Added {len(points)} documents to collection '{self.collection_name}'")
             
-            self.logger.info(f"Added {len(texts)} documents to collection {self.collection_name}")
-            return ids
+        return generated_ids
+
+    def search_by_metadata(self, filter_dict: Dict[str, Any], limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Search documents by metadata filters.
+        
+        Args:
+            filter_dict: Dictionary of metadata filters
+            limit: Maximum number of results to return
             
+        Returns:
+            List of matching documents
+        """
+        try:
+            must_conditions = []
+            for key, value in filter_dict.items():
+                must_conditions.append(
+                    FieldCondition(
+                        key=f"metadata.{key}",
+                        match=MatchValue(value=value)
+                    )
+                )
+                
+            filter_condition = Filter(must=must_conditions)
+            
+            results = []
+            next_page_offset = None
+            
+            while len(results) < limit:
+                scroll_result = self.client.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=filter_condition,
+                    limit=min(100, limit - len(results)),
+                    offset=next_page_offset,
+                    with_payload=True
+                )
+                
+                if not scroll_result[0]:
+                    break
+                    
+                for hit in scroll_result[0]:
+                    payload = hit.payload or {}
+                    results.append({
+                        "id": hit.id,
+                        "text": payload.get("text", ""),
+                        "metadata": payload.get("metadata", {}),
+                        "score": 1.0  # Not a similarity score, just a placeholder
+                    })
+                    
+                next_page_offset = scroll_result[1]
+                if next_page_offset is None:
+                    break
+                    
+            return results[:limit]
         except Exception as e:
-            self.logger.error(f"Failed to add documents: {str(e)}")
-            raise RuntimeError(f"Failed to add documents: {str(e)}")
+            self.logger.error(f"Metadata search failed: {str(e)}")
+            raise RuntimeError(f"Metadata search failed: {str(e)}")
     
     def search(self, query: str, top_k: int = 3, filter_dict: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
@@ -224,10 +272,10 @@ class VectorStore:
             # Format results
             results = []
             for hit in search_result:
-                payload = hit.payload
+                payload = hit.payload or {}
                 results.append({
-                    "id": payload["document_id"],
-                    "text": payload["text"],
+                    "id": hit.id,  # Use hit.id instead of payload["document_id"]
+                    "text": payload.get("text", ""),
                     "metadata": payload.get("metadata", {}),
                     "similarity": hit.score
                 })
@@ -235,81 +283,98 @@ class VectorStore:
             return results
         except Exception as e:
             self.logger.error(f"Search operation failed: {str(e)}")
-            raise RuntimeError(f"Search operation failed: {str(e)}")
+            raise RuntimeError(f"Search operation failed: {str(e)}") from e
             
-    def delete_documents(self, ids: List[str]) -> bool:
-        """
-        Delete documents by their IDs.
+    # def delete_documents(self, ids: List[str]) -> bool:
+    #     """
+    #     Delete documents by their IDs.
         
-        Args:
-            ids: List of document IDs to delete
+    #     Args:
+    #         ids: List of document IDs to delete
             
-        Returns:
-            True if successful
-        """
-        try:
-            # First, we need to find the Qdrant point IDs that correspond to these document IDs
-            # This requires a scroll operation for each document ID
-            for doc_id in ids:
-                result = self.client.scroll(
-                    collection_name=self.collection_name,
-                    scroll_filter=Filter(
-                        must=[FieldCondition(
-                            key="document_id",
-                            match=MatchValue(value=doc_id)
-                        )]
-                    ),
-                    limit=10  # There should only be one, but just in case
-                )
+    #     Returns:
+    #         True if successful
+    #     """
+    #     try:
+    #         # First, we need to find the Qdrant point IDs that correspond to these document IDs
+    #         # This requires a scroll operation for each document ID
+    #         for doc_id in ids:
+    #             result = self.client.scroll(
+    #                 collection_name=self.collection_name,
+    #                 scroll_filter=Filter(
+    #                     must=[FieldCondition(
+    #                         key="document_id",
+    #                         match=MatchValue(value=doc_id)
+    #                     )]
+    #                 ),
+    #                 limit=10  # There should only be one, but just in case
+    #             )
                 
-                if result[0]:  # If we found matching points
-                    point_ids = [point.id for point in result[0]]
-                    self.client.delete(
-                        collection_name=self.collection_name,
-                        points_selector=point_ids
-                    )
+    #             if result[0]:  # If we found matching points
+    #                 point_ids = [point.id for point in result[0]]
+    #                 self.client.delete(
+    #                     collection_name=self.collection_name,
+    #                     points_selector=point_ids
+    #                 )
                     
-            self.logger.info(f"Deleted {len(ids)} documents")
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to delete documents: {str(e)}")
-            return False
+    #         self.logger.info(f"Deleted {len(ids)} documents")
+    #         return True
+    #     except Exception as e:
+    #         self.logger.error(f"Failed to delete documents: {str(e)}")
+    #         return False
             
-    def get_document(self, document_id: str) -> Optional[Dict[str, Any]]:
+    def get_document(self, point_id: Union[str, int]) -> Optional[Dict[str, Any]]:
         """
-        Retrieve a single document by ID.
+        Retrieve a single document by its point ID.
         
         Args:
-            document_id: ID of the document to retrieve
+            point_id: ID of the document point to retrieve
             
         Returns:
             Document if found, else None
         """
         try:
-            result = self.client.scroll(
+            result = self.client.retrieve(
                 collection_name=self.collection_name,
-                scroll_filter=Filter(
-                    must=[FieldCondition(
-                        key="document_id",
-                        match=MatchValue(value=document_id)
-                    )]
-                ),
-                limit=1
+                ids=[point_id],
+                with_payload=True
             )
             
-            if not result[0]:
+            if not result:
                 return None
                 
-            hit = result[0][0]
+            hit = result[0]
+            payload = hit.payload or {}
             return {
-                "id": hit.payload["document_id"],
-                "text": hit.payload["text"],
-                "metadata": hit.payload.get("metadata", {})
+                "id": hit.id,
+                "text": payload.get("text", ""),
+                "metadata": payload.get("metadata", {})
             }
         except Exception as e:
             self.logger.error(f"Failed to get document: {str(e)}")
             return None
-            
+    
+    def delete_documents(self, ids: List[Union[str, int]]) -> bool:
+        """
+        Delete documents by their point IDs.
+        
+        Args:
+            ids: List of point IDs to delete
+        
+        Returns:
+            True if successful
+        """
+        try:
+            self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=ids
+            )
+            self.logger.info(f"Deleted {len(ids)} documents")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to delete documents: {str(e)}")
+            return False
+
     def count_documents(self) -> int:
         """
         Count the total number of documents in the vector store.
