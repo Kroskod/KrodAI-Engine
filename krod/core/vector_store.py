@@ -118,6 +118,10 @@ class VectorStore:
         if len(texts) != len(metadatas):
             raise ValueError("Texts and metadatas must have the same length")
             
+        # Validate ids length if provided
+        if ids is not None and len(ids) != len(texts):
+            raise ValueError("If provided, ids must have the same length as texts")
+            
         # Generate embeddings in batches for efficiency
         batch_size = 32  # Adjust based on your needs
         points = []
@@ -215,7 +219,7 @@ class VectorStore:
             return results[:limit]
         except Exception as e:
             self.logger.error(f"Metadata search failed: {str(e)}")
-            raise RuntimeError(f"Metadata search failed: {str(e)}")
+            raise RuntimeError(f"Metadata search failed: {str(e)}") from e
     
     def search(self, query: str, top_k: int = 3, filter_dict: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
@@ -373,7 +377,7 @@ class VectorStore:
             return True
         except Exception as e:
             self.logger.error(f"Failed to delete documents: {str(e)}")
-            return False
+            raise RuntimeError(f"Failed to delete documents: {str(e)}") from e
 
     def count_documents(self) -> int:
         """

@@ -1,5 +1,5 @@
 import click
-from typing import Optional
+# from typing import Optional
 from krod.core.vector_store import VectorStore
 
 
@@ -17,9 +17,13 @@ def vector_store():
 @click.option('--collection', default='krod_documents', help='Collection name')
 def add(text: str, collection: str):
     """Add a document to the vector store"""
-    vs = VectorStore({"collection_name": collection})
-    doc_id = vs.add_document(text)
-    click.echo(f"Added document with ID: {doc_id}")
+    try:
+        vs = VectorStore({"collection_name": collection})
+        doc_id = vs.add_document(text)
+        click.echo(f"Added document with ID: {doc_id}")
+    except Exception as e:
+        click.echo(f"Error adding document: {str(e)}", err=True)
+        raise click.ClickException(str(e))
 
 @vector_store.command()
 @click.option('--query', prompt='Search query', help='Text to search for')
@@ -45,7 +49,7 @@ def search(query: str, top_k: int, collection: str):
             for k, v in result['metadata'].items():
                 click.echo(f"  {k}: {v}")
 
-vector_store.command()
+@vector_store.command()
 @click.option('--collection', default='krod_documents', help='Collection name')
 def count(collection: str):
     """Count documents in the vector store"""

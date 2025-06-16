@@ -63,14 +63,13 @@ class KrodCLI:
 
         elif command.startswith('vector_store'):
             try:
-                import sys
-                from click.testing import CliRunner
-                runner = CliRunner()
                 args = command.split()[1:]
-                result = runner.invoke(vector_store_commands, args)
-                print(result.output)
-                if result.exception:
-                    print(f"Error: {str(result.exception)}", file=sys.stderr)
+                # Create a standalone context and invoke the command
+                ctx = vector_store_commands.make_context('vector_store', args)
+                vector_store_commands.invoke(ctx)
+                return True
+            except click.ClickException as e:
+                e.show()
                 return True
             except Exception as e:
                 print(f"Error executing vector store command: {str(e)}", file=sys.stderr)

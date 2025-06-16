@@ -11,6 +11,8 @@ import requests
 # import crawl4ai
 import asyncio
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+from .serpapi_provider import SerpAPIProvider
+from .bing_provider import BingSearchProvider
 
 
 class SearchProvider(ABC):
@@ -167,15 +169,16 @@ class Crawl4AIProvider(SearchProvider):
         
         # Run the async function
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # if we're already in an event loop, create a new one
-                asyncio.run(crawl_all_urls())
+            # use asyncio.run if we're not in an event loop
+            return asyncio.run(crawl_all_urls())
+        except RuntimeError as e:
+            if "another loop is running" in str(e).lower():
+                # if we're in an async context, use nest_asyncio or run in executor
+                self.logger.warning("Already in event loop, falling back to sync behavior")
+                return original_results
             else:
-                loop.run_until_complete(crawl_all_urls())
+                raise
         except Exception as e:
             self.logger.error(f"Error in async crawling: {str(e)}")
             # Fall back to original results
             return original_results
-        
-        return enhanced_results
