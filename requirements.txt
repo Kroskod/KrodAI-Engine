@@ -39,5 +39,9 @@ openai>=1.1.0
 anthropic>=0.3.0
 cohere>=1.1.0
 
+# Qdrant dependencies
+qdrant-client>=0.15.0
+sentence-transformers>=2.2.0
 
-
+click>=8.1.7
+click-testing>=0.7.1

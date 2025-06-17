@@ -5,11 +5,12 @@ KROD LLM Manager - Manages interactions with language models.
 import logging
 import time
 import os
+import json
+import openai
 from typing import Dict, Any, List, Optional
 import requests
 from krod.core.token_manager import TokenManager
 from krod.core.vector_store import VectorStore
-import openai
 from .prompts import PromptManager
 
 class LLMManager:
@@ -28,6 +29,7 @@ class LLMManager:
             config: Configuration dictionary
         """
         self.config = config or {}
+        self.logger = logging.getLogger(__name__)
         
         # Default OpenAI configuration
         self.default_config = {
@@ -156,9 +158,21 @@ class LLMManager:
             params["max_tokens"] = max_tokens
             
         # Set API key
-        openai.api_key = self.api_keys.get("openai")
+        # openai.api_key = self.api_keys.get("openai")
         
-        return openai.ChatCompletion.create(**params)
+        # return openai.ChatCompletion.create(**params)
+
+        from openai import OpenAI
+        #initialize the client with the api key
+        client = OpenAI(api_key=self.api_keys.get("openai"))
+        
+        try:
+            return client.chat.completions.create(**params).model_dump()
+        except Exception as e:
+            self.logger.error(f"OpenAI API call failed: {str(e)}")
+            raise
+            
+        
     
     # New methods for multi-stage prompting
     def generate_reasoning(

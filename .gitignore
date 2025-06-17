@@ -28,3 +28,7 @@ krodai-0.1.0.dist-info/
 data/
 
 notepad/
+
+qdrant_storage/
+qdrant_data/
+qdrant_logs/
