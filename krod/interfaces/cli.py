@@ -63,11 +63,15 @@ class KrodCLI:
 
         elif command.startswith('vector_store'):
             try:
-                args = command.split()[1:]
+                # args = command.split()[1:]
+                import shlex
+                args = shlex.split(command)[1:]
                 # Create a standalone context and invoke the command
                 ctx = vector_store_commands.make_context('vector_store', args)
-                vector_store_commands.invoke(ctx)
-                return True
+                # vector_store_commands.invoke(ctx)
+                # return True
+                exit_code = vector_store_commands.invoke(ctx)
+                return exit_code == 0
             except click.ClickException as e:
                 e.show()
                 return True

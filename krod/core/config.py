@@ -6,6 +6,9 @@ import os
 import yaml
 import logging
 from typing import Dict, Any, Optional
+from krod.core.memory.memory_manager import MemoryManager
+
+memory_manager = MemoryManager()
 
 # Default configuration values
 DEFAULT_CONFIG = {
@@ -14,7 +17,7 @@ DEFAULT_CONFIG = {
     "log_level": "INFO",
     
     # LLM settings
-    "llm": {
+    "llm": {   
         "default_provider": "openai",
         "default_model": "gpt-4o",
         "cache_enabled": True,
@@ -31,6 +34,15 @@ DEFAULT_CONFIG = {
         "auto_save": True,
         "auto_save_path": "data/sessions",
         "cleanup_days": 30 # auto cleanup sessions older than 60 days
+    },
+
+    "memory": {
+        "storage_path": "./data/memory",
+        "collection": "conversation_memory",
+        "vector_store": {
+            "collection_name": "conversation_embeddings",
+            "persist_dir": "./data/vector_store"
+        }
     },
     
     # Domain-specific settings

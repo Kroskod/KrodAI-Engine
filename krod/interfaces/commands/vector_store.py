@@ -31,9 +31,12 @@ def add(text: str, collection: str):
 @click.option('--collection', default='krod_documents', help='Collection name')
 def search(query: str, top_k: int, collection: str):
     """Search the vector store"""
-    vs = VectorStore({"collection_name": collection})
-    results = vs.search(query, top_k=top_k)
-
+    try:
+        vs = VectorStore({"collection_name": collection})
+        results = vs.search(query, top_k=top_k)
+    except Exception as e:
+        click.echo(f"Error searching vector store: {str(e)}", err=True)
+        raise click.ClickException(str(e))
 
     if not results:
         click.echo("No results found")
@@ -53,8 +56,12 @@ def search(query: str, top_k: int, collection: str):
 @click.option('--collection', default='krod_documents', help='Collection name')
 def count(collection: str):
     """Count documents in the vector store"""
-    vs = VectorStore({"collection_name": collection})
-    count = vs.count_documents()
-    click.echo(f"Found {count} documents in collection '{collection}'")
+    try:
+        vs = VectorStore({"collection_name": collection})
+        count = vs.count_documents()
+        click.echo(f"Found {count} documents in collection '{collection}'")
+    except Exception as e:
+        click.echo(f"Error counting documents: {str(e)}", err=True)
+        raise click.ClickException(str(e))
 
 
