@@ -5,7 +5,7 @@ from typing import Dict, Any
 from rich import print
 from rich.console import Console
 from rich.panel import Panel
-
+import uuid
 from krod.core.engine import KrodEngine
 from krod.interfaces.commands.vector_store import vector_store as vector_store_commands
 
@@ -18,9 +18,10 @@ class KrodCLI:
         """Initialize the CLI."""
         self.config = config
         self.console = Console()
-        self.current_session_id = None
         self.history = []
         self.running = True
+        self.user_id = "cli_user"  # Default user ID for CLI
+        self.session_id = str(uuid.uuid4())  # Generate a new session ID
         
         try:
             self.engine = KrodEngine(self.config)
@@ -63,13 +64,9 @@ class KrodCLI:
 
         elif command.startswith('vector_store'):
             try:
-                # args = command.split()[1:]
                 import shlex
                 args = shlex.split(command)[1:]
-                # Create a standalone context and invoke the command
                 ctx = vector_store_commands.make_context('vector_store', args)
-                # vector_store_commands.invoke(ctx)
-                # return True
                 exit_code = vector_store_commands.invoke(ctx)
                 return exit_code == 0
             except click.ClickException as e:
@@ -78,6 +75,18 @@ class KrodCLI:
             except Exception as e:
                 print(f"Error executing vector store command: {str(e)}", file=sys.stderr)
                 return True
+        else:
+            # Process as a regular query with conversation memory
+            try:
+                response = self.engine.process_query(
+                    query=command,
+                    user_id=self.user_id,
+                    session_id=self.session_id
+                )
+                print(f"\n{response.get('response', 'No response')}\n")
+            except Exception as e:
+                print(f"Error processing query: {str(e)}", file=sys.stderr)
+            return True
 
 
     def show_help(self):

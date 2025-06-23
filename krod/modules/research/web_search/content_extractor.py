@@ -1,249 +1,418 @@
 """
-Content extraction from web pages
+Enhanced content extraction for Krod AI.
+Handles web pages, PDFs, and other document types with improved error handling.
 """
 
 import logging
-import requests
-from typing import Dict, Any, List, Optional, Tuple
-from bs4 import BeautifulSoup
-import trafilatura
 import re
-import html2text
+import mimetypes
+from typing import Dict, Any, Optional, Tuple
 from urllib.parse import urlparse
+import asyncio
+
+import aiohttp
+import trafilatura
+from bs4 import BeautifulSoup
+import fitz  # PyMuPDF
+from pathlib import Path
 
 class ContentExtractor:
-    """
-    Extracts and processes content from web pages.
-    
-    This class handles fetching web pages, extracting relevant content,
-    cleaning the text, and preparing it for indexing or direct use.
-    """
+    """Enhanced content extraction with support for multiple document types."""
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
         Initialize the content extractor.
         
         Args:
-            config: Configuration options for content extraction
+            config: Configuration options including timeouts, headers, etc.
         """
-        self.logger = logging.getLogger("krod.web_search.content_extractor")
         self.config = config or {}
+        self.logger = logging.getLogger("krod.web_search.content_extractor")
+        
+        # Configure default headers
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-            "Cache-Control": "max-age=0"
         }
-        self.html_converter = html2text.HTML2Text()
-        self.html_converter.ignore_links = False
-        self.html_converter.ignore_images = True
-        self.html_converter.ignore_tables = False
-        self.html_converter.body_width = 0  # No wrapping
         
-    def fetch_url(self, url: str) -> Optional[str]:
+        # Timeout settings (in seconds)
+        self.timeout = aiohttp.ClientTimeout(total=30)
+        
+        # Configure trafilatura
+        trafilatura_config = trafilatura.settings.use_config()
+        trafilatura_config.set("DEFAULT", "EXTRACTION_TIMEOUT", "0")  # No timeout
+        self.trafilatura_config = trafilatura_config
+
+        self.CHUNK_SIZE = 2000  # characters
+        self.CHUNK_OVERLAP = 200  # characters
+
+    async def extract_content(self, url: str) -> Dict[str, Any]:
         """
-        Fetch content from a URL.
+        Extract content from a URL, handling different content types.
         
         Args:
-            url: The URL to fetch
+            url: URL to extract content from
             
         Returns:
-            HTML content as string, or None if fetch failed
+            Dictionary containing extracted content and metadata
         """
         try:
-            response = requests.get(url, headers=self.headers, timeout=10)
-            response.raise_for_status()
-            return response.text
-        except requests.RequestException as e:
-            self.logger.error(f"Error fetching URL {url}: {str(e)}")
-            return None
-    
-    def extract_content(self, html: str, url: str) -> Dict[str, Any]:
+            # First, determine content type
+            content_type = await self._get_content_type(url)
+            
+            # Dispatch to appropriate extractor
+            if content_type == 'application/pdf':
+                return await self._extract_pdf(url)
+            elif content_type.startswith('text/html'):
+                return await self._extract_webpage(url)
+            else:
+                return await self._extract_generic(url, content_type)
+                
+        except Exception as e:
+            self.logger.error(f"Error extracting content from {url}: {str(e)}")
+            return {
+                "url": url,
+                "content": "",
+                "content_type": "unknown",
+                "error": str(e)
+            }
+
+    async def _get_content_type(self, url: str) -> str:
         """
-        Extract main content from HTML.
-        
-        Uses trafilatura for main content extraction, with fallbacks to BeautifulSoup.
+        Determine the content type of a URL.
         
         Args:
-            html: HTML content as string
-            url: Original URL (for metadata)
+            url: URL to check
+            
+        Returns:
+            MIME type as string
+        """
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.head(url, headers=self.headers, timeout=self.timeout) as response:
+                    content_type = response.headers.get('Content-Type', '').split(';')[0].strip().lower()
+                    if content_type:
+                        return content_type
+        except Exception:
+            pass
+            
+        # Fallback to file extension
+        return mimetypes.guess_type(url)[0] or 'application/octet-stream'
+
+    async def _extract_webpage(self, url: str) -> Dict[str, Any]:
+        """
+        Extract content from a web page.
+        
+        Args:
+            url: URL of the web page
             
         Returns:
             Dictionary with extracted content and metadata
         """
-        # Try trafilatura first (best for article content)
-        extracted = trafilatura.extract(html, include_comments=False, 
-                                       include_tables=True, 
-                                       include_links=True,
-                                       include_images=False,
-                                       output_format='text')
-        
-        # If trafilatura fails, use BeautifulSoup
-        if not extracted or len(extracted.strip()) < 100:
-            extracted = self._extract_with_beautifulsoup(html)
-        
-        # Extract metadata
-        soup = BeautifulSoup(html, 'html.parser')
-        title = self._extract_title(soup)
-        description = self._extract_description(soup)
-        
-        # Get domain for source attribution
-        domain = urlparse(url).netloc
-        
-        return {
-            "url": url,
-            "domain": domain,
-            "title": title,
-            "description": description,
-            "content": extracted,
-            "content_length": len(extracted) if extracted else 0
-        }
-    
-    def _extract_with_beautifulsoup(self, html: str) -> str:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=self.headers, timeout=self.timeout) as response:
+                    html = await response.text()
+                    
+                    # Use trafilatura for main content extraction
+                    content = trafilatura.extract(
+                        html,
+                        include_comments=False,
+                        include_tables=True,
+                        output_format='txt',
+                        config=self.trafilatura_config
+                    ) or ""
+                    
+                    # Fallback to BeautifulSoup if trafilatura fails
+                    if not content.strip():
+                        soup = BeautifulSoup(html, 'html.parser')
+                        # Remove script and style elements
+                        for script in soup(["script", "style"]):
+                            script.decompose()
+                        content = soup.get_text(separator='\n', strip=True)
+                    
+                    return {
+                        "url": url,
+                        "content": content,
+                        "content_type": "text/html",
+                        "content_length": len(content),
+                        "title": self._extract_title(html) if html else ""
+                    }
+                    
+        except Exception as e:
+            self.logger.error(f"Error extracting webpage {url}: {str(e)}")
+            raise
+
+    async def _extract_pdf(self, url: str) -> Dict[str, Any]:
         """
-        Extract content using BeautifulSoup as fallback.
+        Extract text from a PDF file.
         
         Args:
-            html: HTML content
+            url: URL of the PDF file
             
         Returns:
-            Extracted text content
+            Dictionary with extracted text and metadata
         """
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        # Remove script, style, and other non-content elements
-        for element in soup(['script', 'style', 'header', 'footer', 'nav', 'aside']):
-            element.decompose()
-        
-        # Convert to markdown-like text
-        return self.html_converter.handle(str(soup))
-    
-    def _extract_title(self, soup: BeautifulSoup) -> str:
-        """Extract page title."""
-        title_tag = soup.find('title')
-        if title_tag and title_tag.string:
-            return title_tag.string.strip()
-        
-        # Fallback to h1
-        h1_tag = soup.find('h1')
-        if h1_tag and h1_tag.string:
-            return h1_tag.string.strip()
-        
-        return "Unknown Title"
-    
-    def _extract_description(self, soup: BeautifulSoup) -> str:
-        """Extract page description."""
-        # Try meta description
-        meta_desc = soup.find('meta', attrs={'name': 'description'})
-        if meta_desc and meta_desc.get('content'):
-            return meta_desc['content'].strip()
-        
-        # Try Open Graph description
-        og_desc = soup.find('meta', attrs={'property': 'og:description'})
-        if og_desc and og_desc.get('content'):
-            return og_desc['content'].strip()
-        
-        return ""
-    
-    def process_search_results(self, search_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=self.headers, timeout=self.timeout) as response:
+                    pdf_data = await response.read()
+                    
+                    with fitz.open(stream=pdf_data, filetype="pdf") as doc:
+                        text = ""
+                        for page in doc:
+                            text += page.get_text() + "\n\n"
+                            
+                    return {
+                        "url": url,
+                        "content": text.strip(),
+                        "content_type": "application/pdf",
+                        "content_length": len(text),
+                        "page_count": len(doc) if 'doc' in locals() else 0
+                    }
+                    
+        except Exception as e:
+            self.logger.error(f"Error extracting PDF {url}: {str(e)}")
+            raise
+
+    async def _extract_generic(self, url: str, content_type: str) -> Dict[str, Any]:
         """
-        Process a list of search results by fetching and extracting content.
+        Generic content extraction for other file types.
         
         Args:
-            search_results: List of search result dictionaries with 'url' keys
+            url: URL of the file
+            content_type: Detected MIME type
             
         Returns:
-            List of processed results with extracted content
+            Dictionary with extracted content and metadata
         """
-        processed_results = []
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=self.headers, timeout=self.timeout) as response:
+                    content = await response.text()
+                    
+                    return {
+                        "url": url,
+                        "content": content,
+                        "content_type": content_type,
+                        "content_length": len(content)
+                    }
+                    
+        except Exception as e:
+            self.logger.error(f"Error extracting content from {url}: {str(e)}")
+            raise
+
+    def _extract_title(self, html: str) -> str:
+        """
+        Extract title from HTML content.
         
-        for result in search_results:
-            url = result.get('url')
-            if not url:
-                continue
-                
-            html = self.fetch_url(url)
-            if not html:
-                continue
-                
-            content_data = self.extract_content(html, url)
+        Args:
+            html: HTML content as string
             
-            # Merge the original search result with extracted content
-            processed_result = {**result, **content_data}
-            processed_results.append(processed_result)
-            
-        return processed_results
-    
-    def chunk_content(self, content: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
+        Returns:
+            Extracted title or empty string
         """
-        Split content into overlapping chunks for indexing.
+        try:
+            soup = BeautifulSoup(html, 'html.parser')
+            title = soup.title.string if soup.title else ""
+            return title.strip() if title else ""
+        except Exception:
+            return ""
+
+    def chunk_content(
+        self,
+        content: str,
+        chunk_size: int = None,
+        chunk_overlap: int = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Split content into overlapping chunks with metadata.
         
         Args:
             content: Text content to chunk
-            chunk_size: Target size of each chunk
-            overlap: Number of characters to overlap between chunks
+            chunk_size: Size of each chunk in characters
+            chunk_overlap: Overlap between chunks in characters
             
         Returns:
-            List of content chunks
+            List of chunks with metadata
         """
+        chunk_size = chunk_size or self.CHUNK_SIZE
+        chunk_overlap = chunk_overlap or self.CHUNK_OVERLAP
+        
         if not content:
             return []
             
         chunks = []
         start = 0
         content_length = len(content)
+        chunk_num = 1
         
         while start < content_length:
             end = min(start + chunk_size, content_length)
             
-            # If we're not at the end, try to break at a sentence or paragraph
+            # Try to break at sentence or paragraph
             if end < content_length:
                 # Look for paragraph break
-                paragraph_break = content.rfind('\n\n', start, end)
-                if paragraph_break != -1 and paragraph_break > start + chunk_size // 2:
-                    end = paragraph_break
+                para_break = content.rfind('\n\n', start, end)
+                if para_break > start + (chunk_size // 2):
+                    end = para_break + 2
                 else:
-                    # Look for sentence break (period followed by space)
-                    sentence_break = content.rfind('. ', start, end)
-                    if sentence_break != -1 and sentence_break > start + chunk_size // 2:
-                        end = sentence_break + 1  # Include the period
+                    # Look for sentence break
+                    sent_break = max(
+                        content.rfind('. ', start, end),
+                        content.rfind('! ', start, end),
+                        content.rfind('? ', start, end)
+                    )
+                    if sent_break > start + (chunk_size // 2):
+                        end = sent_break + 2
             
-            chunks.append(content[start:end])
-            start = end - overlap if end < content_length else content_length
+            chunk = content[start:end].strip()
+            if chunk:
+                chunks.append({
+                    "text": chunk,
+                    "chunk_number": chunk_num,
+                    "start_pos": start,
+                    "end_pos": end,
+                    "total_chunks": -1  # Will be updated later
+                })
+                chunk_num += 1
+            
+            start = max(start + 1, end - chunk_overlap)
+        
+        # Update total chunks
+        for chunk in chunks:
+            chunk["total_chunks"] = len(chunks)
             
         return chunks
-    
-    def extract_key_information(self, content: Dict[str, Any]) -> Dict[str, Any]:
+
+    def extract_metadata(self, content: str, content_type: str) -> Dict[str, Any]:
         """
-        Extract key information from content for summarization.
+        Extract metadata from content based on its type.
         
         Args:
-            content: Dictionary with extracted content
+            content: The content to analyze
+            content_type: MIME type of the content
             
         Returns:
-            Dictionary with key information
+            Dictionary of metadata
         """
-        # Extract potential facts, dates, numbers, etc.
-        text = content.get('content', '')
+        metadata = {
+            "extracted_at": datetime.utcnow().isoformat(),
+            "content_type": content_type,
+            "content_length": len(content),
+            "language": self._detect_language(content),
+            "entities": self._extract_entities(content),
+            "stats": self._calculate_stats(content)
+        }
         
-        # Extract dates (simple regex for common formats)
-        date_pattern = r'\b(?:\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}[-/]\d{1,2}[-/]\d{1,2}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2},? \d{4})\b'
-        dates = re.findall(date_pattern, text)
-        
-        # Extract numbers with context (number followed by words)
-        number_pattern = r'\b\d+(?:\.\d+)?(?:\s+(?:percent|million|billion|trillion|thousand|hundred|dollars|euros|people|users|customers))?\b'
-        numbers = re.findall(number_pattern, text)
-        
-        # Extract potential named entities (simplified)
-        # This is a very basic approach - in production you'd use NER models
-        capitalized_pattern = r'\b[A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*\b'
-        potential_entities = re.findall(capitalized_pattern, text)
+        # Type-specific metadata
+        if content_type == "application/pdf":
+            metadata.update(self._extract_pdf_metadata(content))
+        elif content_type == "text/html":
+            metadata.update(self._extract_html_metadata(content))
+        elif content_type == "application/json":
+            metadata.update(self._extract_json_metadata(content))
+        elif content_type in ["text/yaml", "application/x-yaml"]:
+            metadata.update(self._extract_yaml_metadata(content))
+            
+        return metadata
+
+    def _detect_language(self, text: str) -> str:
+        """Simple language detection (could be enhanced with langdetect)."""
+        # This is a basic implementation
+        common_en = set("the be to of and a in that have i".split())
+        words = set(re.findall(r'\b\w+\b', text.lower()))
+        en_score = len(common_en.intersection(words)) / len(common_en)
+        return "en" if en_score > 0.5 else "unknown"
+
+    def _extract_entities(self, text: str) -> Dict[str, List[str]]:
+        """Extract basic entities (could be enhanced with NER)."""
+        entities = {
+            "dates": re.findall(r'\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b', text)[:10],
+            "emails": re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text)[:5],
+            "urls": re.findall(r'https?://\S+', text)[:5]
+        }
+        return {k: v for k, v in entities.items() if v}
+
+    def _calculate_stats(self, text: str) -> Dict[str, Any]:
+        """Calculate basic text statistics."""
+        words = re.findall(r'\b\w+\b', text)
+        sentences = re.split(r'[.!?]+', text)
+        paragraphs = [p for p in text.split('\n\n') if p.strip()]
         
         return {
-            **content,
-            'extracted_dates': dates[:10],  # Limit to top 10
-            'extracted_numbers': numbers[:10],
-            'potential_entities': list(set(potential_entities))[:20]
+            "word_count": len(words),
+            "sentence_count": len(sentences),
+            "paragraph_count": len(paragraphs),
+            "avg_word_length": sum(len(w) for w in words) / len(words) if words else 0,
+            "avg_sentence_length": len(words) / len(sentences) if sentences else 0
         }
+
+    def _extract_pdf_metadata(self, content: str) -> Dict[str, Any]:
+        """Extract PDF-specific metadata."""
+        try:
+            with fitz.open(stream=content.encode(), filetype="pdf") as doc:
+                return {
+                    "page_count": len(doc),
+                    "is_encrypted": doc.is_encrypted,
+                    "metadata": {k: v for k, v in doc.metadata.items() if v}
+                }
+        except Exception:
+            return {}
+
+    def _extract_html_metadata(self, content: str) -> Dict[str, Any]:
+        """Extract HTML-specific metadata."""
+        try:
+            soup = BeautifulSoup(content, 'html.parser')
+            meta = {m.get('name', '').lower(): m.get('content') 
+                   for m in soup.find_all('meta')}
+            return {
+                "title": soup.title.string if soup.title else "",
+                "meta": {k: v for k, v in meta.items() if k and v}
+            }
+        except Exception:
+            return {}
+
+    def _extract_json_metadata(self, content: str) -> Dict[str, Any]:
+        """Extract structure from JSON."""
+        try:
+            data = json.loads(content)
+            return {
+                "structure": self._analyze_structure(data),
+                "size": len(content)
+            }
+        except Exception:
+            return {}
+
+    def _extract_yaml_metadata(self, content: str) -> Dict[str, Any]:
+        """Extract structure from YAML."""
+        try:
+            data = yaml.safe_load(content)
+            return {
+                "structure": self._analyze_structure(data),
+                "size": len(content)
+            }
+        except Exception:
+            return {}
+
+    def _analyze_structure(self, data: Any, path: str = "") -> Dict:
+        """Recursively analyze data structure."""
+        if isinstance(data, dict):
+            return {
+                "type": "object",
+                "properties": {
+                    k: self._analyze_structure(v, f"{path}.{k}" if path else k)
+                    for k, v in data.items()
+                }
+            }
+        elif isinstance(data, list):
+            return {
+                "type": "array",
+                "items": self._analyze_structure(data[0], f"{path}[]") if data else {}
+            }
+        else:
+            return {
+                "type": type(data).__name__,
+                "value": str(data)[:100]  # Sample value
+            }
