@@ -43,5 +43,6 @@ cohere>=1.1.0
 qdrant-client>=0.15.0
 sentence-transformers>=2.2.0
 
+# CLI dependencies
 click>=8.1.7
 click-testing>=0.7.1

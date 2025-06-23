@@ -4,8 +4,8 @@ KROD Core Engine - Main orchestration logic for the KROD AI research assistant.
 
 import logging
 from typing import Dict, Any, List, Optional
-import importlib
-import pkgutil
+# import importlib
+# import pkgutil
 from dotenv import load_dotenv
 import os
 import re
@@ -26,6 +26,8 @@ from krod.modules.math.solver import MathSolver
 from krod.modules.research.literature import LiteratureAnalyzer
 from krod.core.types import DecisionConfidence
 from krod.modules.general.general_module import GeneralModule
+from krod.core.memory.memory_manager import MemoryManager
+from krod.core.memory.conversation_memory import ConversationMemory
 # from krod.core.decision import DecisionSystem, Decision
 
 # security validator
@@ -103,6 +105,10 @@ class KrodEngine:
         # Initialize security validator
         self.security_validator = SecurityValidator()
 
+        # Initialize memory manager
+        self.memory_manager = MemoryManager(self.config.get("memory", {}))
+        self.active_conversations: Dict[str, ConversationMemory] = {}
+
         # Load modules dynamically
         self.modules = self._load_modules()
         
@@ -110,14 +116,42 @@ class KrodEngine:
         self.ready = True  # Engine is now ready
 
     def _initialize_research_context(self):
-        """Initialize the research context manager."""
+        """Initialize the research context manager.
+        """
         # Create a proper ResearchContext instance
         return ResearchContext()
     
     def _initialize_knowledge_graph(self):
-        """Initialize the knowledge graph."""
+        """Initialize the knowledge graph.
+        """
         # Create a proper KnowledgeGraph instance
         return KnowledgeGraph()
+
+    def get_conversation(self, user_id: str, session_id: Optional[str] = None) -> ConversationMemory:
+        """
+        Get or create a conversation with memory.
+        
+        Args:
+            user_id: ID of the user
+            session_id: ID of the session to load
+        
+        Returns:
+            ConversationMemory object
+        """
+        # For CLI, we might use a default user ID
+        if user_id == "cli":
+            user_id = "cli_user"
+    
+        # Check if we have an active conversation in memory
+        conv_key = f"{user_id}:{session_id}" if session_id else user_id
+        if conv_key not in self.active_conversations:
+            # Load from persistent storage or create new
+            self.active_conversations[conv_key] = self.memory_manager.load_conversation(
+                user_id, session_id
+            )
+        
+        return self.active_conversations[conv_key]
+    
     
     def _load_modules(self) -> Dict[str, Any]:
         """
@@ -158,6 +192,63 @@ class KrodEngine:
         }
         
         return modules
+
+    def process_query(self, query: str, user_id: str = "cli", session_id: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+        """
+        Process a user query with conversation memory.
+        
+        Args:
+            query: User's query
+            user_id: ID of the user
+            session_id: Optional session ID
+            **kwargs: Additional arguments
+            
+        Returns:
+            Response dictionary
+        """
+        try:
+            # Get or create conversation
+            conversation = self.get_conversation(user_id, session_id)
+            
+            # Add user message to conversation
+            conversation.add_message(query, "user", **kwargs)
+            
+            # Process the query (your existing logic here)
+            response = self._process_query(query)
+            
+            # Add assistant response to conversation
+            conversation.add_message(response.get("response", ""), "assistant", **response)
+            
+            # Save conversation
+            self.memory_manager.save_conversation(conversation)
+            
+            return response
+            
+        except Exception as e:
+            self.logger.error(f"Error processing query: {str(e)}")
+            return {
+                "response": "I encountered an error processing your request.",
+                "error": str(e),
+                "success": False
+            }
+
+    def search_conversation_history(self, user_id: str, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        Search through conversation history.
+        
+        Args:
+            user_id: ID of the user
+            query: Search query
+            limit: Maximum number of results
+            
+        Returns:
+            List of relevant conversation snippets
+        """
+        try:
+            return self.memory_manager.search_memory(user_id, query, limit)
+        except Exception as e:
+            self.logger.error(f"Error searching conversation history: {str(e)}")
+            return []
 
     def process(self, 
                 query: str, 
@@ -485,7 +576,11 @@ class KrodEngine:
     
     def _design_experiment(self, query: str, context=None) -> str:
         return "Experiment design capability will be implemented in a future version."
-    
+
+    def _generate_alternative(self, query: str, context=None) -> str:
+        return "Alternative generation capability will be implemented in a future version."
+
+
     def _initialize_llm_manager(self):
         """Initialize the LLM manager.
         The LLM Manager handles interactions with underlying language models,
@@ -506,10 +601,7 @@ class KrodEngine:
         else:
             self.logger.info("OPENAI_API_KEY is set")
         return LLMManager(self.config)
-    
-        
-            
-    
+
     def get_token_usage(self) -> Dict[str, Any]:
         """
         Get current token usage statistics.
