@@ -66,7 +66,8 @@ class KrodCLI:
 
         elif command.startswith('vector_store'):
             try:
-                import shlex, click
+                import shlex
+                import click
                 args = shlex.split(command)[1:]
                 return vector_store_commands.main(args, standalone_mode=False) == 0
             except click.ClickException as e:

@@ -20,7 +20,7 @@ class AcademicSearch:
 
         # Get configuration values
         crossref_email = "research@kroskod.com"
-        user_agent = self.config.get("user_agent", "Krod AI Research Partner (https://krod.kroskod.com)")
+        self.user_agent = self.config.get("user_agent", "Krod AI Research Partner (https://krod.kroskod.com)")
     
         # Initialize Crossref client with proper identification
         if crossref_email:
@@ -140,8 +140,8 @@ class AcademicSearch:
                     "categories": result.get("categories", [])
                 }
                 
-            # Add to vector store
-            await vector_store.add_document(text=text, metadata=metadata)
+                # Add to vector store
+                await vector_store.add_document(text=text, metadata=metadata)
                 
         except Exception as e:
             self.logger.error(f"Error storing results in vector store: {str(e)}")
