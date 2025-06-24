@@ -114,6 +114,12 @@ class WebSearchManager:
     ) -> List[Dict[str, Any]]:
         """
         Process search results in parallel using asyncio.
+        
+        Args:
+            search_results: List of search results
+            
+        Returns:
+            List of processed results
         """
         tasks = []
         for result in search_results:
@@ -129,6 +135,12 @@ class WebSearchManager:
     ) -> Optional[Dict[str, Any]]:
         """
         Process a single search result.
+        
+        Args:
+            result: Search result to process
+            
+        Returns:
+            Processed result or None if processing fails
         """
         try:
             # Extract content using the content extractor

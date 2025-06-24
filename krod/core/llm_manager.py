@@ -6,7 +6,7 @@ import logging
 import time
 import os
 import json
-import openai
+# import openai
 from typing import Dict, Any, List, Optional
 import requests
 from krod.core.token_manager import TokenManager

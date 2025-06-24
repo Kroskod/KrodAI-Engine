@@ -1,6 +1,7 @@
 import sys
 import asyncio
 import logging
+# import click
 from typing import Dict, Any
 from rich import print
 from rich.console import Console
@@ -45,6 +46,7 @@ class KrodCLI:
         """
         print(welcome)
 
+    # Process a command or query
     def process_command(self, command: str) -> bool:
         """Process a command or query."""
         command = command.strip()
@@ -65,16 +67,16 @@ class KrodCLI:
         elif command.startswith('vector_store'):
             try:
                 import shlex
+                import click
                 args = shlex.split(command)[1:]
-                ctx = vector_store_commands.make_context('vector_store', args)
-                exit_code = vector_store_commands.invoke(ctx)
-                return exit_code == 0
+                return vector_store_commands.main(args, standalone_mode=False) == 0
             except click.ClickException as e:
                 e.show()
                 return True
             except Exception as e:
                 print(f"Error executing vector store command: {str(e)}", file=sys.stderr)
                 return True
+        
         else:
             # Process as a regular query with conversation memory
             try:
