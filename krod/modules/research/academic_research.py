@@ -17,9 +17,8 @@ class AcademicSearch:
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = config or {}
     
-
         # Get configuration values
-        crossref_email = "research@kroskod.com"
+        crossref_email = self.config.get("crossref_email", "research@kroskod.com")
         self.user_agent = self.config.get("user_agent", "Krod AI Research Partner (https://krod.kroskod.com)")
     
         # Initialize Crossref client with proper identification
