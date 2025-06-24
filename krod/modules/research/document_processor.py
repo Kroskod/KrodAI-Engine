@@ -16,7 +16,9 @@ class EvidenceStrength(Enum):
 
 @dataclass
 class EvidenceSource:
-    """Represents a source of evidence with metadata."""
+    """
+    Represents a source of evidence with metadata.
+    """
     url: str
     title: str
     source_type: str  # "web", "academic", "document", "industry"

@@ -8,7 +8,13 @@ import logging
 from typing import Dict, Any, Optional
 from krod.core.memory.memory_manager import MemoryManager
 
-memory_manager = MemoryManager()
+memory_manager: Optional[MemoryManager] = None
+
+def get_memory_manager(cfg: Optional[dict] = None) -> MemoryManager:
+    global memory_manager
+    if memory_manager is None:
+        memory_manager = MemoryManager(cfg)
+    return memory_manager
 
 # Default configuration values
 DEFAULT_CONFIG = {
