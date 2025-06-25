@@ -52,6 +52,7 @@ class ResearchAgent:
         
         # Initialize components
         self.document_processor = DocumentProcessor(
+            vector_store=self.vector_store,
             config=self.config.get("document_processor", {})
         )
         
@@ -216,11 +217,10 @@ class ResearchAgent:
                     url=result.get("url", ""),
                     title=result.get("title", "Unknown"),
                     source_type="web",
-                    authors=result.get("source", ""),
-                    publication_date=result.get("date", ""),
-                    content=content,
-                    confidence=0.7,  # Web sources start with moderate confidence
-                    strength=EvidenceStrength.MODERATE
+                    authors=result.get("source", "").split(",") if result.get("source") else [],
+                    published_date=None,
+                    confidence=0.7,
+                    extract=content
                 )
 
                 evidence_sources.append(source)

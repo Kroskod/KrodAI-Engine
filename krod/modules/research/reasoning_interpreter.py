@@ -760,51 +760,35 @@ class ReasoningInterpreter:
         for i, source in enumerate(evidence_sources):
             evidence_texts.append(
                 f"Source {i+1}: {source.title}\n"
-                f"Content: {source.content[:500]}..." if len(source.content) > 500 else source.content
+                f"Content: {source.content[:300]}..." if len(source.content) > 300 else source.content
             )
 
         evidence_text = "\n\n".join(evidence_texts[:5])  # Limit to top 5 sources for prompt size
-
-        # Format issues
-        issues_text = "\n".join([f"- {issue}" for issue in issues])
-
-        # Create the regeneration prompt
-        prompt = f"""
-        Original Query: {query}
-
-        Available Evidence:
-        {evidence_text}
-
-        Issues with Previous Reasoning:
-        {issues_text}
-
-        Please generate new, improved reasoning for the query. Address the issues identified above.
-        Ensure your reasoning is logical, well-supported by the evidence, and free from the problems noted.
-
-        Your response should include:
-        1. Step-by-step reasoning
-        2. A final conclusion that answers the query
-
-        Be thorough but concise.
-        """
-
+        
+        # Add issues as context if available
+        if issues:
+            issues_text = "\n".join([f"- {issue}" for issue in issues])
+            evidence_text += f"\n\nNote: Previous reasoning had these issues:\n{issues_text}"
+        
         try:
-            # Generate new reasoning
-            result = await self.llm_manager.generate(
-                prompt,
-                temperature=0.4,
-                max_tokens=1000
+            # Use the prompt manager's evidence_reasoning template
+            result = await self.llm_manager.generate_structured(
+                "evidence_reasoning",
+                query=query,
+                evidence=evidence_text,
+                context=json.dumps(context) if context else ""
             )
+            
             new_reasoning_text = result.get("text", "")
-
+            
             # Extract final response from the new reasoning
             final_response = self._extract_final_response(new_reasoning_text)
-
+            
             return {
                 "reasoning": new_reasoning_text,
                 "final_response": final_response
             }
-
+            
         except Exception as e:
             self.logger.error(f"Error regenerating reasoning: {str(e)}")
             return {
