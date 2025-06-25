@@ -102,6 +102,47 @@ Reflect on:
 Your reflection:"""
             ),
             
+            # Evidence-based reasoning
+            "evidence_reasoning": PromptTemplate(
+                system="You are Krod's evidence analysis module. Analyze queries based on provided evidence sources.",
+                user="""Query: {query}
+
+Evidence:
+{evidence}
+
+Context:
+{context}
+
+Provide step-by-step reasoning that:
+1. Addresses the query directly
+2. Uses evidence to support each step
+3. Acknowledges limitations where evidence is insufficient
+4. Concludes with a clear answer
+
+Your reasoning:""",
+                temperature=0.4
+            ),
+            
+            # Evidence verification
+            "evidence_verification": PromptTemplate(
+                system="You are Krod's verification module. Verify that reasoning is supported by evidence and addresses the query.",
+                user="""Query: {query}
+
+Reasoning:
+{reasoning}
+
+Evidence:
+{evidence}
+
+Is the reasoning:
+1. Directly addressing the query?
+2. Supported by the evidence?
+3. Free of logical gaps or contradictions?
+
+List any specific issues found:""",
+                temperature=0.3
+            ),
+            
             # Default QA (for simple queries)
             "qa": PromptTemplate(
                 system="You are Krod, a Knowledge-Reinforced Operational Developer specialized in providing accurate, helpful answers.",
