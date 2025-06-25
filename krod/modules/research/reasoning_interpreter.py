@@ -9,13 +9,13 @@ import logging
 import time
 import json
 from enum import Enum
-from typing import Dict, List, Any, Optional, Union
-from dataclasses import dataclass, field
+from typing import Dict, List, Any, Optional, Union, Tuple
+from dataclasses import dataclass
 
 from krod.core.llm_manager import LLMManager
 from krod.core.reasoning import ReasoningSystem
 from krod.core.vector_store import VectorStore
-from .document_processor import EvidenceSource, EvidenceStrength
+from .document_processor import EvidenceSource
 
 
 class ReasoningReflectionType(Enum):
@@ -526,10 +526,10 @@ class ReasoningInterpreter:
             Explanation text
         """
         if not evidence:
-            return f"This is an inference based on general knowledge, without specific evidence."
+            return "This is an inference based on general knowledge, without specific evidence."
 
         if is_inference:
-            return f"This is partially supported by evidence, but includes some inference."
+            return "This is partially supported by evidence, but includes some inference."
 
         # Create explanation with citations
         sources = [f"{source.title} ({source.url})" for source in evidence]
@@ -845,3 +845,142 @@ class ReasoningInterpreter:
             return paragraphs[-1]
 
         return reasoning_text
+
+    async def _generate_reflections(
+        self,
+        reasoning_chain: ReasoningChain,
+        query: str
+    ) -> List[ReasoningReflection]:
+        """
+        Generate additional reflections on the reasoning process.
+        
+        Args:
+            reasoning_chain: The reasoning chain to reflect on
+            query: The original query
+            
+        Returns:
+            List of additional reasoning reflections
+        """
+        reflections = []
+        
+        try:
+            # Analyze confidence distribution
+            confidences = [step.confidence for step in reasoning_chain.steps]
+            avg_confidence = sum(confidences) / len(confidences) if confidences else 0
+            min_confidence = min(confidences) if confidences else 0
+            
+            # Analyze evidence distribution
+            evidence_counts = [len(step.evidence) for step in reasoning_chain.steps]
+            steps_without_evidence = sum(1 for count in evidence_counts if count == 0)
+            
+            # Generate reflections based on confidence
+            if avg_confidence < 0.6:
+                reflections.append(
+                    ReasoningReflection(
+                        reflection_type=ReasoningReflectionType.WEAKNESS,
+                        content="The overall confidence in this reasoning is relatively low, suggesting limited evidence or uncertainty.",
+                        importance=0.8
+                    )
+                )
+            elif avg_confidence > 0.8:
+                reflections.append(
+                    ReasoningReflection(
+                        reflection_type=ReasoningReflectionType.STRENGTH,
+                        content="The reasoning is supported by strong evidence with high confidence.",
+                        importance=0.7
+                    )
+                )
+            
+            # Generate reflections based on evidence gaps
+            if steps_without_evidence > 0:
+                reflections.append(
+                    ReasoningReflection(
+                        reflection_type=ReasoningReflectionType.WEAKNESS,
+                        content=f"{steps_without_evidence} reasoning steps lack direct supporting evidence and rely on inference.",
+                        importance=0.75
+                    )
+                )
+            
+            # Identify weakest link in reasoning
+            if confidences:
+                weakest_step_index = confidences.index(min_confidence)
+                weakest_step = reasoning_chain.steps[weakest_step_index]
+                
+                if min_confidence < 0.5:
+                    reflections.append(
+                        ReasoningReflection(
+                            reflection_type=ReasoningReflectionType.IMPROVEMENT,
+                            content=f"The step '{weakest_step.statement[:50]}...' has low confidence and could benefit from additional evidence.",
+                            importance=0.85
+                        )
+                    )
+            
+            # Generate alternative perspective reflection if confidence is not very high
+            if reasoning_chain.overall_confidence < 0.85:
+                reflections.append(
+                    ReasoningReflection(
+                        reflection_type=ReasoningReflectionType.ALTERNATIVE,
+                        content="Alternative interpretations of the evidence may be possible. Consider exploring additional sources for a more complete perspective.",
+                        importance=0.7
+                    )
+                )
+                
+            # Generate LLM-based reflection for more nuanced analysis
+            if len(reasoning_chain.steps) > 0:
+                # Create a prompt for LLM to reflect on the reasoning
+                steps_text = "\n".join([f"- {step.statement}" for step in reasoning_chain.steps[:5]])
+                
+                prompt = f"""
+                Analyze the following reasoning chain that answers the query: "{query}"
+                
+                Reasoning steps:
+                {steps_text}
+                
+                Conclusion: {reasoning_chain.conclusion}
+                
+                Provide ONE key insight about the quality, completeness, or limitations of this reasoning.
+                Be specific, concise (max 30 words), and insightful. Focus on the most important aspect.
+                """
+                
+                try:
+                    result = await self.llm_manager.generate(
+                        prompt,
+                        temperature=0.7,
+                        max_tokens=100
+                    )
+                    
+                    llm_reflection = result.get("text", "").strip()
+                    if llm_reflection:
+                        # Determine reflection type based on content
+                        reflection_type = ReasoningReflectionType.WEAKNESS
+                        if any(word in llm_reflection.lower() for word in ["strong", "robust", "thorough", "comprehensive"]):
+                            reflection_type = ReasoningReflectionType.STRENGTH
+                        elif any(word in llm_reflection.lower() for word in ["could", "should", "would benefit", "needs"]):
+                            reflection_type = ReasoningReflectionType.IMPROVEMENT
+                        elif any(word in llm_reflection.lower() for word in ["alternative", "other", "different", "perspective"]):
+                            reflection_type = ReasoningReflectionType.ALTERNATIVE
+                            
+                        reflections.append(
+                            ReasoningReflection(
+                                reflection_type=reflection_type,
+                                content=llm_reflection,
+                                importance=0.9  # LLM-generated reflections are given high importance
+                            )
+                        )
+                except Exception as e:
+                    self.logger.error(f"Error generating LLM reflection: {str(e)}")
+            
+            # Limit to top 3 most important reflections to avoid overwhelming
+            reflections.sort(key=lambda r: r.importance, reverse=True)
+            return reflections[:3]
+            
+        except Exception as e:
+            self.logger.error(f"Error generating reflections: {str(e)}")
+            # Return a generic reflection as fallback
+            return [
+                ReasoningReflection(
+                    reflection_type=ReasoningReflectionType.IMPROVEMENT,
+                    content="The reasoning process could benefit from additional evidence and verification.",
+                    importance=0.6
+                )
+            ]

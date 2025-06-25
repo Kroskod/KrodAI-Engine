@@ -7,7 +7,7 @@ comprehensive, evidence-based responses to research queries.
 """
 
 import logging
-import asyncio
+# import asyncio
 import time
 from typing import Optional, Dict, Any, List 
 
@@ -17,7 +17,7 @@ from krod.core.reasoning import ReasoningSystem
 from .document_processor import DocumentProcessor, EvidenceSource, EvidenceStrength
 from .academic_research import AcademicSearch
 from .web_search.web_search_manager import WebSearchManager
-from .reasoning_interpreter import ReasoningInterpreter, ReasoningChain, ReasoningReflection, ReasoningReflectionType
+from .reasoning_interpreter import ReasoningInterpreter, ReasoningReflection, ReasoningReflectionType
 
 class ResearchAgent: 
     """
@@ -86,7 +86,7 @@ class ResearchAgent:
     
     async def research(self, query: str, context: Optional[Dict[str, Any]] = None, max_sources: int = 5, min_confidence: float = 0.6) -> Dict[str, Any]:
         """
-        Perfrom comprehensive research on a query.
+        Perform comprehensive research on a query.
 
         Args: 
             query: The research query
@@ -144,7 +144,7 @@ class ResearchAgent:
             "processing_time": processing_time
         }
     
-    async def _search_vector_store(self, query: str) -> List[EvidenceSource]:
+    async def _search_vector_store(self, query: str, max_sources: int = None) -> List[EvidenceSource]:
         """
         Search the vector store for relevant information.
         
@@ -156,8 +156,9 @@ class ResearchAgent:
         """
         try:
             # Search vector store
-            results = await self.vector_store.search(query, limit=self.max_search_results)
-            
+            limit = max_sources if max_sources is not None else self.max_search_results
+            results = await self.vector_store.search(query, limit=limit)
+
             # Convert results to evidence sources
             evidence_sources = []
             for result in results:
@@ -183,31 +184,31 @@ class ResearchAgent:
             self.logger.error(f"Error searching vector store: {str(e)}")
             return []
 
-
-    async def _gather_evidence(self, query: str, max_results: int) -> List[EvidenceSource]:
+    async def _gather_evidence(self, query: str, max_sources: int, existing_sources: List[EvidenceSource] = None) -> List[EvidenceSource]:
         """
         Gather evidence from multiple web sources.
         
         Args:
             query: The research query
-            max_results: Maximum number of results to return
+            max_sources: Maximum number of results to return
+            existing_sources: Optional list of existing evidence sources to include
             
         Returns:
-            List of evidence sources from web search
+            List of evidence sources from web search and existing sources
         """
 
         try:
             # search web sources
-            results = await self.web_search.search(query=query, max_results=max_results)
+            results = await self.web_search.search(query=query, max_results=max_sources)
             
             # convert results to evidence sources
             evidence_sources = []
             for result in results:
-                # exteact content if available
+                # extract content if available
                 content = result.get("content", "")
                 if not content and "url" in result:
                     # try to extract content
-                    extracted  = await self.web_search.content_extractor.extract_content(result["url"])
+                    extracted = await self.web_search.content_extractor.extract_content(result["url"])
                     content = extracted.get("content", "")
 
                 # create evidence source
@@ -224,11 +225,15 @@ class ResearchAgent:
 
                 evidence_sources.append(source)
             
+            # Add existing sources if provided
+            if existing_sources:
+                evidence_sources.extend(existing_sources)
+            
             return evidence_sources
         
         except Exception as e:
             self.logger.error(f"Error gathering web evidence: {str(e)}")
-            return []
+            return existing_sources or []
         
 
     async def explain_rationale(self, query: str, response: str) -> Dict[str, Any]:
@@ -263,7 +268,7 @@ class ResearchAgent:
         
         try:
             # First, gather relevant evidence for the query
-            evidence_sources = await self._gather_evidence(query, max_results=10)
+            evidence_sources = await self._gather_evidence(query, max_sources=10)
             
             # Edge case: No evidence found
             if not evidence_sources:
@@ -371,7 +376,7 @@ class ResearchAgent:
             # If no reasoning chain is provided, generate one
             if reasoning_chain is None:
                 # First, gather relevant evidence for the query
-                evidence_sources = await self._gather_evidence(query, max_results=10)
+                evidence_sources = await self._gather_evidence(query, max_sources=10)
                 
                 # Use the reasoning interpreter to generate reasoning
                 result = await self.reasoning_interpreter.interpret_with_evidence(
@@ -380,7 +385,7 @@ class ResearchAgent:
                 )
                 
                 if not result.get("success", False):
-                    self.logger.warning(f"Failed to generate reasoning chain for reflective analysis")
+                    self.logger.warning("Failed to generate reasoning chain for reflective analysis")
                     return {
                         "reflections": [
                             {
