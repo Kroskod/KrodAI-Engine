@@ -4,7 +4,7 @@ from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
 
-from ..core.vector_store import VectorStore
+from krod.core.vector_store import VectorStore
 from .web_search.content_extractor import ContentExtractor
 
 class EvidenceStrength(Enum):

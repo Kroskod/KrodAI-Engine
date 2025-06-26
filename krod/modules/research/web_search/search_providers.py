@@ -12,7 +12,7 @@ import requests
 import asyncio
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 from .serpapi_provider import SerpAPIProvider
-from .bing_provider import BingSearchProvider
+# from .bing_provider import BingSearchProvider
 
 
 class SearchProvider(ABC):
@@ -51,8 +51,8 @@ class Crawl4AIProvider(SearchProvider):
         self.fallback_provider_name = fallback_provider
         if fallback_provider == "serpapi":
             self.fallback_provider = SerpAPIProvider()
-        elif fallback_provider == "bing":
-            self.fallback_provider = BingSearchProvider()
+        # elif fallback_provider == "bing":
+        #     self.fallback_provider = BingSearchProvider()
         else:
             self.fallback_provider = SerpAPIProvider()
             self.logger.warning(f"Unknown fallback provider '{fallback_provider}', using SerpAPI")

@@ -57,19 +57,20 @@ class WebSearchManager:
         
         self.logger.info("Web search manager initialized")
 
-    async def search(self, query: str, num_results: Optional[int] = None) -> Dict[str, Any]:
+    async def search(self, query: str, num_results: Optional[int] = None, max_results: Optional[int] = None) -> Dict[str, Any]:
         """
         Perform a web search and extract content from results.
         
         Args:
             query: The search query
             num_results: Number of results to return (default from config)
+            max_results: Alias for num_results for compatibility
             
         Returns:
             Dictionary with search results and extracted content
         """
         start_time = time.time()
-        num_results = num_results or self.default_num_results
+        num_results = num_results or max_results or self.default_num_results
         
         try:
             # Perform the search
