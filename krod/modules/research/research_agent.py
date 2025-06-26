@@ -108,8 +108,8 @@ class ResearchAgent:
         # step 2: gather evidence from multiple soruces
         evidence_sources = await self._gather_evidence(
             query=query,
-            existing_sources=vector_results,
-            max_sources=max_sources
+            max_sources=max_sources,
+            existing_sources=vector_results
         )
         
         # Filter sources by confidence
