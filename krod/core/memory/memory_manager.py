@@ -1,11 +1,14 @@
 import json
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import uuid
 from datetime import datetime, timezone
+import logging
 from krod.core.vector_store import VectorStore
 from krod.core.memory.conversation_memory import ConversationMemory
 
+
+logger = logging.getLogger(__name__)
 
 class MemoryManager:
     """
@@ -13,6 +16,8 @@ class MemoryManager:
 
     """
     def __init__(self, config: Optional[dict] = None):
+        self.logger = logging.getLogger("krod.memory_manager")
+
         self.config = config or {}
         self.vector_store = VectorStore(self.config.get("vector_store", {}))
         self.collection = self.config.get("collection", "conversation_memory")
@@ -106,3 +111,104 @@ class MemoryManager:
             top_k=limit,
             collection_name=self.collection
         )
+
+    async def recall(
+        self,
+        query: str,
+        context_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        limit: int = 5,
+        threshold: float = 0.7
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve relevant memories based on the query.
+        
+        Args:
+            query: The query to search memories with
+            context_id: Optional context ID to filter memories
+            user_id: Optional user ID to filter memories
+            limit: Maximum number of memories to return
+            threshold: Minimum similarity threshold (0-1)
+            
+        Returns:
+            List of relevant memories with their metadata
+        """
+        try:
+            # First try to get exact matches from context
+            filters = {}
+            if context_id:
+                filters["context_id"] = context_id
+            if user_id:
+                filters["user_id"] = user_id
+                
+            # Try to get exact matches first
+            if filters:
+                exact_matches = await self.vector_store.search(
+                    query=query,
+                    metadata_filters=filters,
+                    top_k=limit
+                )
+                if exact_matches:
+                    return exact_matches
+            
+            # Fall back to semantic search
+            return await self.vector_store.search(
+                query=query,
+                top_k=limit
+            )
+            
+        except Exception as e:
+            logger.error(f"Error recalling memories: {str(e)}", exc_info=True)
+            return []
+
+    async def update_memory(
+        self,
+        query: str,
+        response: str,
+        context_id: str,
+        user_id: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """
+        Update conversation memory by storing query and response.
+        
+        Args:
+            query: The user query
+            response: The system response
+            context_id: Context ID for the conversation
+            user_id: User ID for the conversation
+            metadata: Optional additional metadata
+            
+        Returns:
+            True if memory was updated successfully, False otherwise
+        """
+        try:
+            self.logger.info(f"Updating memory for context {context_id}")
+            
+            # Prepare memory data
+            memory_data = {
+                "context_id": context_id,
+                "user_id": user_id,
+                "query": query,
+                "response": response,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "memory_id": str(uuid.uuid4())
+            }
+            
+            # Add additional metadata if provided
+            if metadata:
+                memory_data.update(metadata)
+                
+            # Store in vector database
+            result = await self.vector_store.add(
+                texts=[query + " " + response],  # Index both query and response for better retrieval
+                metadatas=[memory_data],
+                collection_name=self.collection
+            )
+            
+            self.logger.info(f"Memory updated with ID: {memory_data['memory_id']}")
+            return bool(result)
+            
+        except Exception as e:
+            self.logger.error(f"Error updating memory: {str(e)}", exc_info=True)
+            return False

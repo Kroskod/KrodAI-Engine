@@ -171,7 +171,7 @@ class ResearchAgent:
                     title=metadata.get("title", "Unknown"),
                     source_type=metadata.get("source_type", "document"),
                     authors=metadata.get("authors", ""),
-                    publication_date=metadata.get("publication_date", ""),
+                    published_date=metadata.get("published_date", ""),
                     content=result.get("text", ""),
                     confidence=min(0.9, result.get("score", 0.5)),  # Cap at 0.9
                     strength=EvidenceStrength.STRONG if result.get("score", 0) > 0.8 else EvidenceStrength.MODERATE
@@ -191,7 +191,7 @@ class ResearchAgent:
         
         Args:
             query: The research query
-            max_sources: Maximum number of results to return
+            max_sources: Maximum number of sources to return
             existing_sources: Optional list of existing evidence sources to include
             
         Returns:
@@ -200,30 +200,51 @@ class ResearchAgent:
 
         try:
             # search web sources
-            results = await self.web_search.search(query=query, max_results=max_sources)
+            search_response = await self.web_search.search(query=query, max_sources=max_sources)
+            
+            # Extract results from the response dictionary
+            if isinstance(search_response, dict):
+                results = search_response.get("results", [])
+            elif isinstance(search_response, list):
+                results = search_response
+            else:
+                self.logger.error(f"Unexpected search response type: {type(search_response)}")
+                results = []
             
             # convert results to evidence sources
             evidence_sources = []
             for result in results:
+                if not isinstance(result, dict):
+                    self.logger.warning(f"Skipping non-dictionary result: {result}")
+                    continue
+                    
                 # extract content if available
                 content = result.get("content", "")
                 if not content and "url" in result:
                     # try to extract content
-                    extracted = await self.web_search.content_extractor.extract_content(result["url"])
-                    content = extracted.get("content", "")
+                    try:
+                        extracted = await self.web_search.content_extractor.extract_content(result["url"])
+                        if isinstance(extracted, dict):
+                            content = extracted.get("content", "")
+                        else:
+                            self.logger.warning(f"Extracted content is not a dictionary: {extracted}")
+                    except Exception as e:
+                        self.logger.warning(f"Error extracting content: {str(e)}")
 
                 # create evidence source
-                source = EvidenceSource(
-                    url=result.get("url", ""),
-                    title=result.get("title", "Unknown"),
-                    source_type="web",
-                    authors=result.get("source", "").split(",") if result.get("source") else [],
-                    published_date=None,
-                    confidence=0.7,
-                    extract=content
-                )
-
-                evidence_sources.append(source)
+                try:
+                    source = EvidenceSource(
+                        url=result.get("url", ""),
+                        title=result.get("title", "Unknown"),
+                        source_type="web",
+                        authors=result.get("source", "").split(",") if result.get("source") else [],
+                        published_date=None,
+                        confidence=0.7,
+                        extract=content
+                    )
+                    evidence_sources.append(source)
+                except Exception as e:
+                    self.logger.error(f"Error creating evidence source: {str(e)}")
             
             # Add existing sources if provided
             if existing_sources:
@@ -269,7 +290,7 @@ class ResearchAgent:
         try:
             # First, gather relevant evidence for the query
             evidence_sources = await self._gather_evidence(query, max_sources=10)
-            
+
             # Edge case: No evidence found
             if not evidence_sources:
                 self.logger.warning(f"No evidence found for query: {query}")

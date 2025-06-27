@@ -235,28 +235,32 @@ class VectorStore:
             raise RuntimeError(f"Metadata search failed: {str(e)}") from e
     
     async def search(
-    self,
-    query: str,
-    top_k: int = 10,
-    metadata_filters: Optional[Dict[str, Any]] = None,
-    limit: Optional[int] = None  # Add this parameter
-) -> List[Dict[str, Any]]:
+        self,
+        query: str,
+        top_k: int = 10,
+        metadata_filters: Optional[Dict[str, Any]] = None,
+        limit: Optional[int] = None  
+    ) -> List[Dict[str, Any]]:
         """
         Search for similar documents with optional metadata filtering.
         
         Args: 
             query: Query to search for
             top_k: Number of results to return
-            filter_dict: Optional dictionary for metadata filtering
-
+            metadata_filters: Optional dictionary for metadata filtering
+            limit: Optional limit (if provided, overrides top_k)
+            
         Returns:
-            List of similar documents and their scores
-        
+            List of matching documents with similarity scores
+            
         Raises:
-            ValueError: If query is invalid
+            ValueError: If query is empty or invalid
             RuntimeError: If search operation fails
         """
-        # Input validation
+        # Use limit if provided, otherwise use top_k
+        if limit is not None:
+            top_k = limit
+            
         if not query or not isinstance(query, str):
             raise ValueError("Query must be a non-empty string")
         
@@ -264,14 +268,33 @@ class VectorStore:
             raise ValueError("top_k must be a positive integer")
 
         try:
-            # Generate query embedding
-            query_embedding = self.embedding_model.encode(query).tolist()
+            # Check if collection exists and has points
+            try:
+                collection_info = self.client.get_collection(self.collection_name)
+                if collection_info.vectors_count == 0:
+                    self.logger.warning(f"Collection {self.collection_name} exists but is empty")
+                    return []
+            except Exception as e:
+                self.logger.warning(f"Collection check failed: {str(e)}")
+                # Continue anyway, as the collection might be created during search
+            
+            # Generate query embedding with improved handling
+            try:
+                # Clean and normalize query for better embedding
+                clean_query = query.strip().lower()
+                if len(clean_query) < 3:  # Very short queries need expansion
+                    clean_query = f"information about {clean_query}"
+                
+                query_embedding = self.embedding_model.encode(clean_query).tolist()
+            except Exception as embed_err:
+                self.logger.error(f"Embedding generation failed: {str(embed_err)}")
+                return []  # Return empty rather than crashing
             
             # Build filter if provided
             qdrant_filter = None
-            if filter_dict:
+            if metadata_filters:
                 must_conditions = []
-                for key, value in filter_dict.items():
+                for key, value in metadata_filters.items():
                     must_conditions.append(
                         FieldCondition(
                             key=f"metadata.{key}",
@@ -292,10 +315,6 @@ class VectorStore:
                 self.logger.warning("No results found for query")
                 return []
 
-            # Apply limit if specified
-            if limit is not None and limit > 0:
-                search_result = search_result[:limit]
-            
             # Format results
             results = []
             for hit in search_result:

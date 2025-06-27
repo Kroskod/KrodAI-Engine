@@ -13,8 +13,10 @@ import asyncio
 from typing import Dict, Any
 from dotenv import load_dotenv
 from krod.interfaces.cli import KrodCLI
-from krod.core.config import load_config, DEFAULT_CONFIG
-from krod.core.engine import KrodEngine
+from krod.core.config import Config
+# from krod.core.engine import KrodEngine
+from krod.core.agent_engine import AgentEngine
+
 
 def setup_logging(config: Dict[str, Any]) -> None:
     """
@@ -92,7 +94,7 @@ def initialize_krod(args: argparse.Namespace) -> Dict[str, Any]:
     load_dotenv()
     
     # Load configuration
-    config = load_config(args.config)
+    config = Config(args.config)
     
     # Override with command line arguments
     if args.debug:
@@ -160,7 +162,7 @@ def main() -> None:
         
         if args.query:
             # Process single query mode
-            engine = KrodEngine(config)
+            engine = AgentEngine(config)
             result = engine.process(args.query, args.session)
             print("\nResponse:")
             print("---------")

@@ -1,256 +1,192 @@
-"""
-KROD Configuration - Configuration management for the KROD AI research assistant.
-"""
-
+from typing import Any, Dict, Optional, Union
 import os
-import yaml
 import logging
-from typing import Dict, Any, Optional
-from krod.core.memory.memory_manager import MemoryManager
+import json
+from pathlib import Path
 
-memory_manager: Optional[MemoryManager] = None
+class Config(dict):
+    """
+    Configuration manager for Krod AI.
+    
+    Handles loading configuration from multiple sources with the following precedence:
+    1. Explicitly passed configuration (highest priority)
+    2. Environment variables
+    3. Default configuration (lowest priority)
+    
+    Example:
+        >>> config = Config({"debug": True})
+        >>> config.get("debug")
+        True
+    """
+    
+    # Default configuration
+    DEFAULTS = {
+        # Core settings
+        "debug": False,
+        "log_level": "INFO",
+        
+        # LLM settings
+        "llm": {   
+            "default_provider": "openai",
+            "default_model": "gpt-4",
+            "cache_enabled": True,
+            "cache_size": 1000,
+            "temperature": 0.7,
+            "max_tokens": 2000,
+            "retry_attempts": 4
+        },
+        
+        # Research context settings
+        "research_context": {
+            "max_sessions": 100,
+            "max_history_per_session": 50,
+            "auto_save": True,
+            "auto_save_path": "data/sessions",
+            "cleanup_days": 30
+        },
 
-def get_memory_manager(cfg: Optional[dict] = None) -> MemoryManager:
-    global memory_manager
-    if memory_manager is None:
-        memory_manager = MemoryManager(cfg)
-    return memory_manager
-
-# Default configuration values
-DEFAULT_CONFIG = {
-    # Core settings
-    "debug": False,
-    "log_level": "INFO",
-    
-    # LLM settings
-    "llm": {   
-        "default_provider": "openai",
-        "default_model": "gpt-4o",
-        "cache_enabled": True,
-        "cache_size": 1000,
-        "temperature": 0.7,
-        "max_tokens": 2000,
-        "retry_attempts": 4
-    },
-    
-    # Research context settings
-    "research_context": {
-        "max_sessions": 100,
-        "max_history_per_session": 50,
-        "auto_save": True,
-        "auto_save_path": "data/sessions",
-        "cleanup_days": 30 # auto cleanup sessions older than 60 days
-    },
-
-    "memory": {
-        "storage_path": "./data/memory",
-        "collection": "conversation_memory",
-        "vector_store": {
-            "collection_name": "conversation_embeddings",
-            "persist_dir": "./data/vector_store"
-        }
-    },
-    
-    # Domain-specific settings
-    "domains": {
-        "code": {
-            "enabled": True,
-            "supported_languages": ["python", "javascript", "java", "c++", "rust"]
+        # Memory settings
+        "memory": {
+            "storage_path": "./data/memory",
+            "vector_db_path": "./data/vector_db",
+            "max_results": 5,
+            "similarity_threshold": 0.75
         },
-        "math": {
-            "enabled": True,
-            "numerical_precision": 6
+        
+        # Evidence settings
+        "evidence": {
+            "use_evidence": True,
+            "max_sources": 5,
+            "min_confidence": 0.7
         },
-        "research": {
-            "enabled": True,
-            "max_papers_per_query": 10
-        }
-    },
-    
-    # Knowledge graph settings
-    "knowledge_graph": {
-        "enabled": True,
-        "persistence": True,
-        "storage_path": "data/knowledge"
-    },
-    
-    # Interface settings
-    "interfaces": {
-        "cli": {
-            "enabled": True,
-            "history_file": ".krod_history"
+        
+        # Reasoning settings
+        "enable_reflection": True,
+        "max_evidence_sources": 5,
+        "reasoning": {
+            "structured_output": True,
+            "confidence_threshold": 0.6,
+            "max_reasoning_steps": 5
         },
-        "api": {
-            "enabled": True,
-            "host": "127.0.0.1",
-            "port": 5000,
-            "cors_origins": ["*"],
-            "rate_limit": 100
+        
+        # Domain-specific settings
+        "domains": {
+            "code": {
+                "enabled": True,
+                "supported_languages": ["python", "javascript", "java", "c++", "rust"]
+            },
+            "math": {
+                "enabled": True,
+                "numerical_precision": 6
+            },
+            "research": {
+                "enabled": True,
+                "max_papers_per_query": 10,
+                "min_confidence": 0.7
+            }
         },
-        "web": {
-            "enabled": False,
-            "host": "127.0.0.1",
-            "port": 8000
+        
+        # Agent settings
+        "agent": {
+            "enable_streaming": True
         }
     }
-}
 
-def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Load the KROD configuration.
-    
-    Args:
-        config_path: Optional path to a YAML configuration file
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize the configuration.
         
-    Returns:
-        Configuration dictionary
-    """
-    # Start with default configuration
-    config = DEFAULT_CONFIG.copy()
-    
-    # Look for configuration file in standard locations if not specified
-    if config_path is None:
-        # Check environment variable
-        if "KROD_CONFIG" in os.environ:
-            config_path = os.environ["KROD_CONFIG"]
-        else:
-            # Check standard locations
-            standard_locations = [
-                "./krod_config.yaml",
-                "./config/krod.yaml",
-                "~/.krod/config.yaml",
-                "/etc/krod/config.yaml"
-            ]
-            
-            for path in standard_locations:
-                expanded_path = os.path.expanduser(path)
-                if os.path.exists(expanded_path):
-                    config_path = expanded_path
-                    break
-    
-    # Load configuration file if found
-    if config_path and os.path.exists(config_path):
-        try:
-            with open(config_path, 'r') as f:
-                file_config = yaml.safe_load(f)
+        Args:
+            config: Optional dictionary with configuration overrides
+        """
+        super().__init__(self.DEFAULTS)
+        self.update(self._load_env_vars())
+        if config:
+            self.update(config)
+
+    def _load_env_vars(self) -> Dict[str, Any]:
+        """
+        Load configuration from environment variables.
+        
+        Environment variables should be prefixed with 'KROD_'.
+        Nested keys can be specified using double underscores.
+        
+        Example:
+            KROD_DEBUG=true
+            KROD_LLM__DEFAULT_MODEL=gpt-4
+        
+        Returns:
+            Dict with configuration from environment variables
+        """
+        config = {}
+        for key, value in os.environ.items():
+            if not key.startswith('KROD_'):
+                continue
                 
-            # Merge configurations (deep merge would be better but this works for MVP)
-            _deep_update(config, file_config)
-            
-            logging.info(f"Loaded configuration from {config_path}")
-        except Exception as e:
-            logging.error(f"Error loading configuration from {config_path}: {str(e)}")
-    
-    # Override with environment variables
-    _override_from_env(config)
-    
-    # Set up logging based on configuration
-    _configure_logging(config)
-    
-    return config
-
-def _deep_update(base_dict: Dict[str, Any], update_dict: Dict[str, Any]) -> None:
-    """
-    Recursively update a nested dictionary.
-    
-    Args:
-        base_dict: The dictionary to update
-        update_dict: The dictionary with updates
-    """
-    for key, value in update_dict.items():
-        if (
-            key in base_dict and 
-            isinstance(value, dict) and 
-            isinstance(base_dict[key], dict)
-        ):
-            _deep_update(base_dict[key], value)
-        else:
-            base_dict[key] = value
-
-def _override_from_env(config: Dict[str, Any], prefix: str = "KROD") -> None:
-    """
-    Override configuration values from environment variables.
-    
-    Environment variables should be in the format:
-    KROD_SECTION_SUBSECTION_KEY=value
-    
-    Args:
-        config: The configuration dictionary to update
-        prefix: The environment variable prefix
-    """
-    for env_key, env_value in os.environ.items():
-        if env_key.startswith(f"{prefix}_"):
-            # Split the key into parts
-            parts = env_key[len(prefix) + 1:].lower().split('_')
-            
-            # Navigate to the right spot in the config
+            # Convert KROD_LLM__DEFAULT_MODEL to ['llm', 'default_model']
+            path = key[5:].lower().split('__')
             current = config
-            for part in parts[:-1]:
+            
+            # Create nested dictionaries
+            for part in path[:-1]:
                 if part not in current:
                     current[part] = {}
                 current = current[part]
             
-            # Set the value, with type conversion
-            key = parts[-1]
-            if env_value.lower() in ('true', 'yes', '1'):
-                current[key] = True
-            elif env_value.lower() in ('false', 'no', '0'):
-                current[key] = False
-            elif env_value.isdigit():
-                current[key] = int(env_value)
-            elif env_value.replace('.', '', 1).isdigit() and env_value.count('.') < 2:
-                current[key] = float(env_value)
+            # Set the value with type conversion
+            current[path[-1]] = self._convert_value(value)
+            
+        return config
+
+    @staticmethod
+    def _convert_value(value: str) -> Union[bool, int, float, str, list, dict]:
+        """Convert string value to appropriate type."""
+        if value.lower() in ('true', 'yes', 'y'):
+            return True
+        if value.lower() in ('false', 'no', 'n'):
+            return False
+        try:
+            return int(value)
+        except ValueError:
+            try:
+                return float(value)
+            except ValueError:
+                if value.startswith('[') and value.endswith(']'):
+                    return json.loads(value.replace("'", '"'))
+                if value.startswith('{') and value.endswith('}'):
+                    return json.loads(value.replace("'", '"'))
+                return value
+
+    def get_nested(self, path: str, default: Any = None) -> Any:
+        """
+        Get a value from a nested dictionary using dot notation.
+        
+        Args:
+            path: Dot-separated path to the value (e.g., 'llm.default_model')
+            default: Default value if path doesn't exist
+            
+        Returns:
+            The value at the specified path or default if not found
+        """
+        keys = path.split('.')
+        value = self
+        for key in keys:
+            if isinstance(value, dict) and key in value:
+                value = value[key]
             else:
-                current[key] = env_value
+                return default
+        return value
 
-def _configure_logging(config: Dict[str, Any]) -> None:
-    """
-    Configure logging based on the configuration.
-    
-    Args:
-        config: The configuration dictionary
-    """
-    log_level_name = config.get("log_level", "INFO")
-    log_level = getattr(logging, log_level_name.upper(), logging.INFO)
-    
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
-    
-    # Set debug mode
-    if config.get("debug", False):
-        logging.getLogger().setLevel(logging.DEBUG)
+    def save(self, path: Union[str, Path]) -> None:
+        """Save configuration to a JSON file."""
+        with open(path, 'w') as f:
+            json.dump(self, f, indent=2)
 
-def save_config(config: Dict[str, Any], config_path: str) -> bool:
-    """
-    Save the configuration to a file.
-    
-    Args:
-        config: The configuration dictionary
-        config_path: Path to save the configuration to
-        
-    Returns:
-        True if saved successfully, False otherwise
-    """
-    try:
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(os.path.abspath(config_path)), exist_ok=True)
-        
-        # Write configuration to file
-        with open(config_path, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False)
-        
-        return True
-    except Exception as e:
-        logging.error(f"Error saving configuration to {config_path}: {str(e)}")
-        return False
+    @classmethod
+    def from_file(cls, path: Union[str, Path]) -> 'Config':
+        """Load configuration from a JSON file."""
+        with open(path) as f:
+            return cls(json.load(f))
 
-def get_default_config() -> Dict[str, Any]:
-    """
-    Get the default configuration.
-    
-    Returns:
-        Default configuration dictionary
-    """
-    return DEFAULT_CONFIG.copy()
+# Global instance for easy access
+config = Config()

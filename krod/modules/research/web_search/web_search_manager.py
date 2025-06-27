@@ -57,20 +57,27 @@ class WebSearchManager:
         
         self.logger.info("Web search manager initialized")
 
-    async def search(self, query: str, num_results: Optional[int] = None, max_results: Optional[int] = None) -> Dict[str, Any]:
+    async def search(
+        self, 
+        query: str, 
+        max_results: Optional[int] = None,
+        num_results: Optional[int] = None,
+        max_sources: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
-        Perform a web search and extract content from results.
+        Search the web for the given query
         
         Args:
-            query: The search query
-            num_results: Number of results to return (default from config)
-            max_results: Alias for num_results for compatibility
+            query: The query to search for
+            max_results: Maximum number of results to return (deprecated, use num_results)
+            num_results: Number of results to return
+            max_sources: Alias for max_results/num_results for consistency with ResearchAgent
             
         Returns:
             Dictionary with search results and extracted content
         """
         start_time = time.time()
-        num_results = num_results or max_results or self.default_num_results
+        num_results = num_results or max_results or max_sources or self.default_num_results
         
         try:
             # Perform the search
@@ -88,26 +95,28 @@ class WebSearchManager:
                     "num_results": 0,
                     "search_time": time.time() - start_time
                 }
-            
-            # Process search results in parallel
-            processed_results = await self._process_results_parallel(search_results)
-            
-            # Sort results by relevance (if available) or content length
-            processed_results.sort(
-                key=lambda x: x.get("relevance_score", 0) or x.get("content_length", 0),
-                reverse=True
-            )
+                
+            # Process and return the results
+            search_time = time.time() - start_time
+            self.logger.info(f"Search completed in {search_time:.2f}s, found {len(search_results)} results")
             
             return {
                 "query": query,
-                "results": processed_results,
-                "num_results": len(processed_results),
-                "search_time": time.time() - start_time
+                "results": search_results,
+                "num_results": len(search_results),
+                "search_time": search_time
             }
             
         except Exception as e:
-            self.logger.error(f"Error during search: {str(e)}", exc_info=True)
-            raise
+            self.logger.error(f"Error during web search: {str(e)}", exc_info=True)
+            # Return empty results on error with error information
+            return {
+                "query": query,
+                "results": [],
+                "num_results": 0,
+                "search_time": time.time() - start_time,
+                "error": str(e)
+            }
 
     async def _process_results_parallel(
         self, 
