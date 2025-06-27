@@ -6,9 +6,9 @@ Handles web pages, PDFs, and other document types with improved error handling.
 import logging
 import re
 import mimetypes
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, List, Tuple
 from urllib.parse import urlparse
-import asyncio
+# import asyncio
 
 import aiohttp
 import trafilatura

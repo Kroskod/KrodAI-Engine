@@ -113,9 +113,9 @@ def display_welcome_message() -> None:
     welcome = """
     ╔═════════════════════════════════════════════════════════╗
     ║                                                         ║
-    ║   Krod - Knowledge-Reinforced Operational Developer     ║
+    ║   Krod - Knowledge Amplification Partner                ║
     ║                                                         ║
-    ║   Version: 0.1.0                                        ║
+    ║   Version: 0.2.0                                        ║
     ║   Mode: CLI                                             ║
     ║                                                         ║
     ║   Type 'help' for a list of commands                    ║
@@ -177,7 +177,8 @@ def main() -> None:
             
             # Start CLI loop
             try:
-                cli.cmdloop()
+                # Run the async cmdloop in the event loop
+                asyncio.run(cli.cmdloop())
             except KeyboardInterrupt:
                 print("\nExiting KROD. Goodbye!")
             finally:

@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 import os
 import re
+from datetime import timezone, datetime
 from krod.core.llm_manager import LLMManager
 from krod.core.research_context import ResearchContext
 from krod.core.knowledge_graph import KnowledgeGraph
@@ -18,8 +19,8 @@ from krod.core.common_sense import CommonSenseSystem
 from krod.core.token_manager import TokenManager
 from krod.core.security_validator import SecurityValidator
 from krod.core.identity import KrodIdentity
-from krod.core.reasoning_interpreter import ReasoningInterpreter
-from krod.core.research_agent import ResearchAgent
+from krod.modules.research.reasoning_interpreter import ReasoningInterpreter
+from krod.modules.research.research_agent import ResearchAgent
 
 # Domain specific modules
 from krod.modules.code.analyzer import CodeAnalyzer
@@ -33,10 +34,10 @@ from krod.core.memory.conversation_memory import ConversationMemory
 # from krod.core.decision import DecisionSystem, Decision
 
 # security validator
-from .security_validator import SecurityValidator
+from krod.core.security_validator import SecurityValidator
 
 # decision system
-from .decision import DecisionSystem, Decision
+from krod.core.decision import DecisionSystem, Decision
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -80,26 +81,44 @@ class KrodEngine:
         self.logger = logging.getLogger("krod.engine")
         self.config = config or {}
         self.ready = False
+
+        # Initialize persistent storage if configured
+        self.persistent_storage = None
+        if self.config.get("enable_persistent_storage", False):
+            # Initialize your storage backend here
+            # self.persistent_storage = YourStorageBackend(self.config.get("storage", {}))
+            pass
+        
         
         # Initialize components
         self.logger.info("Initializing components...")
         
-        # Initialize security validator
-        self.security_validator = SecurityValidator(
-            config=self.config.get("security", {})
-        )
+         # Initialize security validator
+        # self.security_validator = SecurityValidator(
+        #     config=self.config.get("security", {})
+        # )
+        self.security_validator = SecurityValidator()
+
+        
+        # Initialize LLM manager
+        self.llm_manager = self._initialize_llm_manager()
+
+        # Initialize systems that depend on LLM manager
+        self.common_sense_system = CommonSenseSystem()
+        self.clarification_system = ClarificationSystem(self.llm_manager)
+        self.decision_system = DecisionSystem(self.llm_manager)
         
         # Initialize research context
         self.research_context = ResearchContext()
         
         # Initialize common sense system
-        self.common_sense_system = CommonSenseSystem()
+        # self.common_sense_system = CommonSenseSystem()
         
         # Initialize clarification system
-        self.clarification_system = ClarificationSystem()
+        # self.clarification_system = ClarificationSystem()
         
         # Initialize decision system
-        self.decision_system = DecisionSystem()
+        # self.decision_system = DecisionSystem()
         
         # Initialize identity
         self.identity = KrodIdentity()
@@ -110,8 +129,6 @@ class KrodEngine:
         # Initialize token manager
         self.token_manager = TokenManager()
         
-        # Initialize LLM manager
-        self.llm_manager = self._initialize_llm_manager()
         
         # # Initialize reasoning system
         # self.reasoning_system = ReasoningSystem(
@@ -145,7 +162,7 @@ class KrodEngine:
         self.algorithm_analyzer = AlgorithmAnalyzer(self.llm_manager)
         self.math_solver = MathSolver(self.llm_manager)
         self.literature_analyzer = LiteratureAnalyzer(self.llm_manager)
-        self.decision_system = DecisionSystem(self.llm_manager)
+        # self.decision_system = DecisionSystem(self.llm_manager)
         self.general_module = GeneralModule(self.llm_manager)
         
         # Initialize memory manager
@@ -293,12 +310,14 @@ class KrodEngine:
             self.logger.error(f"Error searching conversation history: {str(e)}")
             return []
 
-    async def process(self, 
-                 query: str, 
-                 context_id: Optional[str] = None,
-                 conversation_history: Optional[List[Dict[str, Any]]] = None,
-                 user_id: Optional[str] = None,
-                 session_id: Optional[str] = None) -> Dict[str, Any]:
+    async def process(
+        self,
+        query: str, 
+        context_id: Optional[str] = None,
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Process a research query with conversation history support.
         
@@ -375,7 +394,7 @@ class KrodEngine:
             user_message = {
                 "role": "user",
                 "content": query,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             conversation_history.append(user_message)
             
@@ -411,14 +430,34 @@ class KrodEngine:
             self.logger.info(f"Using context: {context_id}")
             
             # Prepare context with conversation history
-            context = context or {}
-            if 'conversation_history' not in context:
-                context['conversation_history'] = []
-                
-            # Add conversation history to context if provided
-            if conversation_history:
-                context['conversation_history'].extend(conversation_history)
-                
+            if context is None:
+                context = {}
+            
+            # Check if context is a ResearchSession object or a dictionary
+            if hasattr(context, 'history'):
+                # It's a ResearchSession object
+                # Add conversation history to the session if provided
+                if conversation_history:
+                    # We need to update the session's history with the provided conversation history
+                    # First, convert conversation_history to the format expected by ResearchSession
+                    for msg in conversation_history:
+                        role = msg.get("role", "unknown")
+                        content = msg.get("content", "")
+                        if role == "user":
+                            context.add_query(content)
+                        elif role == "assistant":
+                            context.add_response(content)
+            else:
+                # It's a dictionary or other object
+                # Ensure it's a dictionary
+                context = context or {}
+                if 'conversation_history' not in context:
+                    context['conversation_history'] = []
+                    
+                # Add conversation history to context if provided
+                if conversation_history:
+                    context['conversation_history'].extend(conversation_history)
+            
             # Pass conversation history to research agent and reasoning interpreter
             if hasattr(self, 'research_agent') and hasattr(self.research_agent, 'update_context'):
                 self.research_agent.update_context({
@@ -433,7 +472,19 @@ class KrodEngine:
                 })
                 
             # Store conversation history in context for modules to access
-            context['conversation_history'] = conversation_history
+            if hasattr(context, 'history'):
+                # It's a ResearchSession object; update its history via methods
+                # (Assume conversation_history is a list of dicts with 'role' and 'content')
+                for msg in conversation_history:
+                    role = msg.get("role")
+                    content = msg.get("content")
+                    if role == "user":
+                        context.add_query(content)
+                    elif role == "assistant":
+                        context.add_response(content)
+            else:
+                # It's a dictionary
+                context['conversation_history'] = conversation_history
             
             # Initialize LLM if not already done
             if not hasattr(self, 'llm_manager'):
@@ -560,21 +611,43 @@ class KrodEngine:
             # Get explanation/clarification if available
             explanation = reasoning_result.get("explanation", "")
 
+            # Get hypothesis and methodology if available
+            hypothesis = reasoning_result.get("hypothesis", "")
+            methodology = reasoning_result.get("methodology", "")
+            statistical_plan = reasoning_result.get("statistical_plan", "")
+
             # Add citations if available
-            citations = ""
+            citations = []
             if "reasoning_chain" in reasoning_result and hasattr(reasoning_result["reasoning_chain"], "sources_used"):
-                citations = "\n\n## Sources\n"
-                for i, source in enumerate(reasoning_result["reasoning_chain"].sources_used):
-                    citations += f"{i+1}. {source.to_citation()}\n"
+                citations = [
+                    {
+                        "title": source.title,
+                        "url": source.url,
+                        "source_type": source.source_type,
+                        "confidence": source.confidence,
+                        "relevance": source.relevance if hasattr(source, 'relevance') else None,
+                        "publication_date": getattr(source, 'publication_date', 'N/A')
+                    }
+                    for source in reasoning_result["reasoning_chain"].sources_used
+                ]
 
             # Add confidence information if available
-            confidence_info = ""
-            if "confidence" in reasoning_result:
-                confidence = reasoning_result["confidence"]
-                confidence_info = f"\n\n## Confidence [state]\nOverall confidence: {confidence:.2f}/1.0"
+            confidence = reasoning_result.get("confidence", 0.0)
+            confidence_info = f"\n\n## Confidence [state]\nOverall confidence: {confidence:.2f}/1.0"
 
             # Build the final response in the specified format
-            combined_response = f"## Reasoning Process [state]\n{reasoning_text}"
+            combined_response = "## Research Approach [state]\n"
+            
+            if hypothesis:
+                combined_response += f"### Hypothesis\n{hypothesis}\n\n"
+                
+            if methodology:
+                combined_response += f"### Methodology\n{methodology}\n\n"
+                
+            if statistical_plan:
+                combined_response += f"### Statistical Analysis Plan\n{statistical_plan}\n\n"
+            
+            combined_response += "## Reasoning Process [state]\n" + reasoning_text
 
             if explanation:
                 combined_response += f"\n\n## Reasoning Clarification [state]\n{explanation}"
@@ -582,10 +655,33 @@ class KrodEngine:
             combined_response += f"\n\n## Krod AI Response [main]\n{answer_text}"
 
             if citations:
-                combined_response += f"\n{citations}"
+                combined_response += "\n\n## Research Sources\n"
+                for i, source in enumerate(citations, 1):
+                    pub_date = f" ({source['publication_date']})" if source['publication_date'] != 'N/A' else ''
+                    relevance = f" [Relevance: {source['relevance']:.2f}]" if source.get('relevance') is not None else ''
+                    combined_response += f"{i}. **{source['title']}**{pub_date}{relevance}\n"
+                    if source['url']:
+                        combined_response += f"   - URL: {source['url']}\n"
+                    combined_response += f"   - Source Type: {source['source_type']}\n"
+                    combined_response += f"   - Confidence: {source['confidence']:.2f}/1.0\n\n"
                 
             if confidence_info:
-                combined_response += f"\n{confidence_info}"
+                combined_response += confidence_info
+                
+            # Add reflection if available
+            if "reasoning_chain" in reasoning_result and hasattr(reasoning_result["reasoning_chain"], "reflections"):
+                reflections = reasoning_result["reasoning_chain"].reflections
+                if reflections:
+                    combined_response += "\n\n## Reflection [state]\n"
+                    for i, reflection in enumerate(reflections, 1):
+                        combined_response += f"{i}. **{reflection.reflection_type}**: {reflection.statement}\n"
+
+            # Add practical recommendations if available
+            recommendations = reasoning_result.get("recommendations", [])
+            if recommendations:
+                combined_response += "\n\n## Practical Recommendations\n"
+                for i, rec in enumerate(recommendations, 1):
+                    combined_response += f"{i}. {rec}\n"
             
             # Make decision with validation
             self.logger.info("STEP 10: Making decision")
@@ -608,22 +704,40 @@ class KrodEngine:
             self.logger.info("STEP 12: Processing query using modules")
             results = []
             for capability in capabilities:
-                self.logger.info(f"Processing capability: {capability}")
                 domain_name, capability_name = capability.split('.')
                 if domain_name in self.modules:
                     module = self.modules[domain_name]
                     if capability_name in module:
                         method = module[capability_name]
-                        result = method(query, llm_context)
-                        results.append(result)
-            
+                        # For our specialized module handlers
+                        if domain_name == "code" and capability_name == "analyze":
+                            result =  self.code_analyzer.process(
+                                query, 
+                                 self.research_context.get_context(context_id) if context_id else []
+                            )
+                            results.append(result.get("response", ""))
+                        elif domain_name == "math" and capability_name == "solve":
+                            result =  self.math_solver.process(
+                                query, 
+                                 self.research_context.get_context(context_id) if context_id else []
+                            )
+                            results.append(result.get("response", ""))
+                        elif domain_name == "research" and capability_name == "literature":
+                            result =  self.literature_analyzer.process(
+                                query, 
+                                 self.research_context.get_context(context_id) if context_id else []
+                            )
+                            results.append(result.get("response", ""))
+                        else:
+                            # For placeholder methods
+                            result = method(query)
+                            results.append(result)
+        
             # Integrate results
-            self.logger.info("STEP 13: Integrating results")
-            final_response = combined_response if answer_text else self._integrate_results(results)
+            final_response =  self._integrate_results(results)
             self.logger.info(f"Final response: {final_response}")
             
             # Extract knowledge for the knowledge graph
-            self.logger.info("STEP 14: Extracting knowledge")
             self._extract_knowledge(query, final_response, domain)
 
              # Add response to context
@@ -696,18 +810,37 @@ class KrodEngine:
             
             self.logger.info("END process: returning response")
 
-
+            # Create assistant message
             assistant_message = {
                 "role": "assistant",
                 "content": response_data.get("response", ""),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(datetime.timezone.utc).isoformat(),
                 "metadata": {
                     "domain": response_data.get("domain"),
                     "confidence": response_data.get("confidence"),
                     "sources": response_data.get("sources", [])
                 }
             }
-            conversation_history.append(assistant_message)
+            
+            # Update conversation history based on context type
+            if hasattr(context, 'history'):
+                # It's a ResearchSession object
+                # Add the assistant message to the session
+                context.add_response(assistant_message["content"])
+                
+                # Convert the session history to the expected conversation_history format
+                conversation_history = []
+                for msg in context.history:
+                    conversation_history.append({
+                        "role": msg.get("role", "unknown"),
+                        "content": msg.get("content", ""),
+                        "timestamp": msg.get("timestamp", datetime.now(datetime.timezone.utc).isoformat()),
+                        "metadata": msg.get("metadata", {})
+                    })
+            else:
+                # It's a dictionary or other object
+                # Add assistant message to conversation history
+                conversation_history.append(assistant_message)
 
             # Update response with final conversation history
             response_data["conversation_history"] = conversation_history
@@ -1170,7 +1303,7 @@ class KrodEngine:
             "content": f"Summary of previous conversation: {summary}",
             "metadata": {
                 "is_summary": True,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(datetime.timezone.utc).isoformat()
             }
         }
 
@@ -1188,14 +1321,56 @@ class KrodEngine:
             session_id: ID of the session
             conversation: List of conversation messages
         """
-        if not hasattr(self, 'persistent_storage') or not self.persistent_storage:
+        if not hasattr(self, 'memory_manager'):
+            self.logger.info("No memory manager configured, skipping conversation persistence")
             return
             
         try:
-            await self.persistent_storage.save_conversation(
+            self.logger.info(f"Persisting conversation for user {user_id}, session {session_id}")
+            
+            # Convert conversation messages to ConversationMemory objects
+            from .memory.conversation_memory import ConversationMemory
+            
+            # Create a new conversation memory object
+            conversation_memory = ConversationMemory(
                 user_id=user_id,
-                session_id=session_id,
-                messages=conversation
+                session_id=session_id
             )
+            
+            # Add all messages to the conversation memory
+            for message in conversation:
+                role = message.get("role", "unknown")
+                content = message.get("content", "")
+                timestamp = message.get("timestamp", datetime.now(timezone.utc).isoformat())
+                metadata = message.get("metadata", {})
+                
+                conversation_memory.add_message(
+                    role=role,
+                    content=content,
+                    timestamp=timestamp,
+                    metadata=metadata
+                )
+            
+            # Save to both in-memory conversation and vector store for semantic search
+            self.memory_manager.save_conversation(conversation_memory)
+            
+            # Add to vector store if available
+            if hasattr(self, 'vector_store') and self.vector_store:
+                try:
+                    # Add each message to the vector store
+                    for message in conversation:
+                        if message.get("role") == "user" or message.get("role") == "assistant":
+                            self.vector_store.add_text(
+                                text=message.get("content", ""),
+                                metadata={
+                                    "user_id": user_id,
+                                    "session_id": session_id,
+                                    "role": message.get("role", "unknown"),
+                                    "timestamp": message.get("timestamp", datetime.now(timezone.utc).isoformat())
+                                }
+                            )
+                except Exception as e:
+                    self.logger.error(f"Error adding conversation to vector store: {str(e)}")
+            
         except Exception as e:
             self.logger.error(f"Error persisting conversation: {str(e)}")

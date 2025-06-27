@@ -27,6 +27,7 @@ class VectorStore:
                 - collection_name: Name of the Qdrant collection
                 - persist_dir: Directory to store Qdrant data
                 - qdrant_url: URL of Qdrant server (optional, uses in-memory if None)
+                - force_local: Force using local storage even if qdrant_url is provided
         """
         self.logger = logging.getLogger("krod.vector_store")
         self.config = config or {}
@@ -37,13 +38,25 @@ class VectorStore:
         self.embedding_size = self.embedding_model.get_sentence_embedding_dimension()
         
         # Initialize Qdrant client
-        qdrant_url = self.config.get("qdrant_url")
+        qdrant_url = self.config.get("qdrant_url", "http://localhost:6333")
         persist_dir = self.config.get("persist_dir", "./qdrant_data")
+        force_local = self.config.get("force_local", False)
         
-        if qdrant_url:
-            self.client = QdrantClient(url=qdrant_url)
-            self.logger.info(f"Connected to Qdrant server at {qdrant_url}")
+        # Try to connect to Qdrant server first, fall back to local if needed
+        if qdrant_url and not force_local:
+            try:
+                self.client = QdrantClient(url=qdrant_url)
+                # Test the connection
+                self.client.get_collections()
+                self.logger.info(f"Connected to Qdrant server at {qdrant_url}")
+            except Exception as e:
+                self.logger.warning(f"Failed to connect to Qdrant server at {qdrant_url}: {str(e)}")
+                self.logger.info(f"Falling back to local Qdrant storage")
+                os.makedirs(persist_dir, exist_ok=True)
+                self.client = QdrantClient(path=persist_dir)
+                self.logger.info(f"Using local Qdrant storage at {persist_dir}")
         else:
+            # Use local storage
             os.makedirs(persist_dir, exist_ok=True)
             self.client = QdrantClient(path=persist_dir)
             self.logger.info(f"Using local Qdrant storage at {persist_dir}")
@@ -221,7 +234,13 @@ class VectorStore:
             self.logger.error(f"Metadata search failed: {str(e)}")
             raise RuntimeError(f"Metadata search failed: {str(e)}") from e
     
-    def search(self, query: str, top_k: int = 3, filter_dict: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    async def search(
+    self,
+    query: str,
+    top_k: int = 10,
+    metadata_filters: Optional[Dict[str, Any]] = None,
+    limit: Optional[int] = None  # Add this parameter
+) -> List[Dict[str, Any]]:
         """
         Search for similar documents with optional metadata filtering.
         
@@ -272,18 +291,22 @@ class VectorStore:
             if not search_result:
                 self.logger.warning("No results found for query")
                 return []
+
+            # Apply limit if specified
+            if limit is not None and limit > 0:
+                search_result = search_result[:limit]
             
             # Format results
             results = []
             for hit in search_result:
                 payload = hit.payload or {}
                 results.append({
-                    "id": hit.id,  # Use hit.id instead of payload["document_id"]
+                    "id": hit.id,
                     "text": payload.get("text", ""),
                     "metadata": payload.get("metadata", {}),
                     "similarity": hit.score
                 })
-                
+            
             return results
         except Exception as e:
             self.logger.error(f"Search operation failed: {str(e)}")
