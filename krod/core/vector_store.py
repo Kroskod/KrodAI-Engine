@@ -8,8 +8,10 @@ from typing import Dict, List, Optional, Any, Union
 from uuid import uuid4
 # import numpy as np
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue, CollectionStatus
+from qdrant_client.http.exceptions import UnexpectedResponse
 from sentence_transformers import SentenceTransformer
+
 
 class VectorStore:
     """
@@ -41,24 +43,25 @@ class VectorStore:
         qdrant_url = self.config.get("qdrant_url", "http://localhost:6333")
         persist_dir = self.config.get("persist_dir", "./qdrant_data")
         force_local = self.config.get("force_local", False)
+        self.qdrant_client = QdrantClient(url=qdrant_url)
         
         # Try to connect to Qdrant server first, fall back to local if needed
         if qdrant_url and not force_local:
             try:
-                self.client = QdrantClient(url=qdrant_url)
+                self.qdrant_client = QdrantClient(url=qdrant_url)
                 # Test the connection
-                self.client.get_collections()
+                self.qdrant_client.get_collections()
                 self.logger.info(f"Connected to Qdrant server at {qdrant_url}")
             except Exception as e:
                 self.logger.warning(f"Failed to connect to Qdrant server at {qdrant_url}: {str(e)}")
                 self.logger.info(f"Falling back to local Qdrant storage")
                 os.makedirs(persist_dir, exist_ok=True)
-                self.client = QdrantClient(path=persist_dir)
+                self.qdrant_client = QdrantClient(path=persist_dir)
                 self.logger.info(f"Using local Qdrant storage at {persist_dir}")
         else:
             # Use local storage
             os.makedirs(persist_dir, exist_ok=True)
-            self.client = QdrantClient(path=persist_dir)
+            self.qdrant_client = QdrantClient(path=persist_dir)
             self.logger.info(f"Using local Qdrant storage at {persist_dir}")
             
         # Collection configuration
@@ -69,11 +72,11 @@ class VectorStore:
 
     def _ensure_collection(self):
         """Ensure the Qdrant collection exists with proper configuration."""
-        collections = self.client.get_collections().collections
+        collections = self.qdrant_client.get_collections().collections
         collection_names = [c.name for c in collections]
         
         if self.collection_name not in collection_names:
-            self.client.create_collection(
+            self.qdrant_client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(
                     size=self.embedding_size,
@@ -81,6 +84,52 @@ class VectorStore:
                 )
             )
             self.logger.info(f"Created new collection: {self.collection_name}")
+        else:
+            self.logger.info(f"Collection '{self.collection_name}' already exists")
+
+    async def ensure_collection_exists(
+        self,
+        collection_name: str, 
+        vector_size: int = 768,  # Default to 768 if not specified
+        recreate: bool = False
+    ) -> None:
+        """
+        Ensure a collection exists, creating it if necessary.
+        
+        Args:
+            collection_name: Name of the collection
+            vector_size: Dimension of the vectors
+            recreate: If True, delete and recreate the collection if it exists
+        """
+        try:
+            # Check if collection exists
+            collections = await self.qdrant_client.get_collections()
+            collection_names = [c.name for c in collections.collections]
+            
+            if collection_name in collection_names:
+                if recreate:
+                    await self.qdrant_client.delete_collection(collection_name)
+                    self.logger.info(f"Recreated collection: {collection_name}")
+                else:
+                    self.logger.debug(f"Collection exists: {collection_name}")
+                    return
+            
+            # Create the collection if it doesn't exist or was recreated
+            await self.qdrant_client.create_collection(
+                collection_name=collection_name,
+                vectors_config=VectorParams(
+                    size=vector_size,
+                    distance=Distance.COSINE
+                )
+            )
+            
+            # Wait until collection is ready
+            await self.qdrant_client.get_collection(collection_name)
+            self.logger.info(f"Created collection: {collection_name}")
+        
+        except Exception as e:
+            self.logger.error(f"Error ensuring collection {collection_name} exists: {str(e)}")
+            raise
 
     def add_document(self, text: str, metadata: Dict[str, Any] = None) -> str:
         """
@@ -99,11 +148,13 @@ class VectorStore:
         """
         return self.add_documents([text], [metadata or {}])[0]
 
-    def add_documents(
-        self, 
+    async def add_documents(
+        self,
         texts: Union[str, List[str]], 
         metadatas: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None,
-        ids: Optional[List[Union[str, int]]] = None
+        ids: Optional[List[Union[str, int]]] = None,
+        collection_name: Optional[str] = None,
+        vector_size: int = 768
     ) -> List[str]:
         """
         Add multiple documents to the vector store with optional metadata.
@@ -112,71 +163,88 @@ class VectorStore:
             texts: Single text or list of texts to add
             metadatas: Optional metadata dict or list of dicts
             ids: Optional list of IDs for the documents
+            collection_name: Optional collection name (defaults to instance collection)
             
         Returns:
             List of document IDs
         """
+        # Input validation (keep existing)
         if isinstance(texts, str):
             texts = [texts]
-            
         if not texts:
             raise ValueError("Texts must not be empty")
-            
-        # Handle single metadata dict case
         if metadatas is None:
             metadatas = [{}] * len(texts)
         elif isinstance(metadatas, dict):
             metadatas = [metadatas] * len(texts)
-            
         if len(texts) != len(metadatas):
             raise ValueError("Texts and metadatas must have the same length")
-            
-        # Validate ids length if provided
         if ids is not None and len(ids) != len(texts):
             raise ValueError("If provided, ids must have the same length as texts")
-            
-        # Generate embeddings in batches for efficiency
-        batch_size = 32  # Adjust based on your needs
-        points = []
-        generated_ids = []
-        
-        for i in range(0, len(texts), batch_size):
-            batch_texts = texts[i:i + batch_size]
-            batch_metadatas = metadatas[i:i + batch_size]
-            batch_ids = None if ids is None else ids[i:i + batch_size]
-            
-            # Generate embeddings
-            embeddings = self.embedding_model.encode(
-                batch_texts,
-                show_progress_bar=len(batch_texts) > 5,
-                convert_to_numpy=True
+
+        collection = collection_name or self.collection_name
+        self.logger.debug(f"Preparing to add {len(texts)} documents to collection '{collection}'")
+
+        try:
+            # Ensure collection exists
+            await self.ensure_collection_exists(
+                collection_name=collection,
+                vector_size=vector_size
             )
-            
-            # Create points
-            for j, (text, embedding, metadata) in enumerate(zip(batch_texts, embeddings, batch_metadatas)):
-                point_id = batch_ids[j] if batch_ids else str(uuid4())
-                point = PointStruct(
-                    id=point_id,
-                    vector=embedding.tolist(),
-                    payload={
-                        "document_id": point_id,
-                        "text": text,
-                        "metadata": metadata
-                    }
-                )
-                points.append(point)
-                generated_ids.append(point_id)
-        
-        # Upload to Qdrant
-        if points:
-            self.client.upsert(
-                collection_name=self.collection_name,
-                points=points,
-                wait=True
-            )
-            self.logger.info(f"Added {len(points)} documents to collection '{self.collection_name}'")
-            
-        return generated_ids
+
+            batch_size = 32
+            points = []
+            generated_ids = []
+
+            for i in range(0, len(texts), batch_size):
+                batch_texts = texts[i:i + batch_size]
+                batch_metadatas = metadatas[i:i + batch_size]
+                batch_ids = None if ids is None else ids[i:i + batch_size]
+
+                try:
+                    # Generate embeddings
+                    self.logger.debug(f"Processing batch {i//batch_size + 1}/{(len(texts)-1)//batch_size + 1}")
+                    embeddings = self.embedding_model.encode(
+                        batch_texts,
+                        show_progress_bar=len(batch_texts) > 5,
+                        convert_to_numpy=True
+                    )
+
+                    # Create points
+                    for j, (text, embedding, metadata) in enumerate(zip(batch_texts, embeddings, batch_metadatas)):
+                        point_id = batch_ids[j] if batch_ids and j < len(batch_ids) else str(uuid4())
+                        point = PointStruct(
+                            id=point_id,
+                            vector=embedding.tolist(),
+                            payload={
+                                "document_id": point_id,
+                                "text": text,
+                                "metadata": metadata
+                            }
+                        )
+                        points.append(point)
+                        generated_ids.append(point_id)
+
+                    # Upload to Qdrant
+                    if points:
+                        await self.qdrant_client.upsert(  # Fixed: Use qdrant_client, not client
+                            collection_name=collection,
+                            points=points,
+                            wait=True
+                        )
+                        self.logger.debug(f"Uploaded batch of {len(points)} documents")
+                        points = []  # Reset for next batch
+
+                except Exception as e:
+                    self.logger.error(f"Error in batch {i//batch_size + 1}: {str(e)}", exc_info=True)
+                    raise
+
+            self.logger.info(f"Successfully added {len(generated_ids)} documents to collection '{collection}'")
+            return generated_ids
+
+        except Exception as e:
+            self.logger.error(f"Failed to add documents: {str(e)}", exc_info=True)
+            raise
 
     def search_by_metadata(self, filter_dict: Dict[str, Any], limit: int = 10) -> List[Dict[str, Any]]:
         """

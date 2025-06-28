@@ -1,8 +1,9 @@
 from typing import Any, Dict, Optional, Union
 import os
-import logging
+# import logging
 import json
 from pathlib import Path
+import ast
 
 class Config(dict):
     """
@@ -152,9 +153,19 @@ class Config(dict):
                 return float(value)
             except ValueError:
                 if value.startswith('[') and value.endswith(']'):
-                    return json.loads(value.replace("'", '"'))
+                    try:
+                        return json.loads(value)
+                    except json.JSONDecodeError:
+                        # Try parsing as Python literal if JSON fails
+                        import ast
+                        return ast.literal_eval(value)
                 if value.startswith('{') and value.endswith('}'):
-                    return json.loads(value.replace("'", '"'))
+                    try:
+                        return json.loads(value)
+                    except json.JSONDecodeError:
+                        # Try parsing as Python literal if JSON fails
+                        import ast
+                        return ast.literal_eval(value)
                 return value
 
     def get_nested(self, path: str, default: Any = None) -> Any:

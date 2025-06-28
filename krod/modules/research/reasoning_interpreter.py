@@ -11,6 +11,7 @@ import json
 from enum import Enum
 from typing import Dict, List, Any, Optional, Union, Tuple, Callable
 from dataclasses import dataclass
+import tiktoken
 
 from krod.core.llm_manager import LLMManager
 from krod.core.reasoning import ReasoningSystem
@@ -80,7 +81,7 @@ class ReasoningChain:
                             "title": source.title,
                             "url": source.url,
                             "confidence": source.confidence,
-                            "strength": source.strength.value
+                            # "strength": source.strength.value
                         } for source in step.evidence
                     ],
                     "is_inference": step.is_inference,
@@ -98,6 +99,33 @@ class ReasoningChain:
             ] if self.reflections else [],
             "citations": self.format_citations(include_markdown=False)
         }
+
+    def _count_tokens(self, text: str, model: str = "gpt-4") -> int:
+        """
+        Count tokens in text for a given model.
+        """
+        try:
+            enc = tiktoken.encoding_for_model(model)
+            return len(enc.encode(text))
+        except Exception:
+            # Fallback: ~4 chars per token
+            return len(text) // 4
+
+    # def _truncate_to_token_limit(
+    #     self, 
+    #     text: str, 
+    #     max_tokens: int = 8000,
+    #     model: str = "gpt-4"
+    # ) -> str:
+    #     """ 
+
+    #     Truncate text to fit within token limit.
+    #     """
+    #     enc = tiktoken.encoding_for_model(model)
+    #     tokens = enc.encode(text)
+    #     if len(tokens) <= max_tokens:
+    #         return text
+    #     return enc.decode(tokens[:max_tokens])
 
     def format_citations(self, include_markdown: bool = True) -> Union[str, List[Dict[str, Any]]]:
         """
@@ -179,6 +207,63 @@ class ReasoningInterpreter:
 
         self.logger.info("Reasoning interpreter initialized")
 
+    def _truncate_to_token_limit(
+        self, 
+        text: str, 
+        max_tokens: int = 8000,
+        model: str = "gpt-4"
+    ) -> str:
+        """
+        Truncate text to fit within token limit.
+        
+        Args:
+            text: Input text to truncate
+            max_tokens: Maximum number of tokens allowed
+            model: Model name for tokenization
+            
+        Returns:
+            Truncated text that fits within the token limit
+        """
+        try:
+            enc = tiktoken.encoding_for_model(model)
+            tokens = enc.encode(text)
+            
+            if len(tokens) <= max_tokens:
+                return text 
+                
+            # Log the truncation
+            self.logger.info(
+                f"Truncating text from {len(tokens)} to {max_tokens} tokens "
+                f"({len(tokens) - max_tokens} tokens removed)"
+            )
+            
+            # Truncate and decode back to text
+            truncated_text = enc.decode(tokens[:max_tokens])
+            return truncated_text
+            
+        except Exception as e:
+            self.logger.warning(
+                f"Error in token truncation: {str(e)}. "
+                "Falling back to character-based truncation."
+            )
+            # Fallback: truncate by characters (rough estimate)
+            return text[:max_tokens * 4]  # ~4 chars per token
+
+
+    def _count_tokens(self, text: str) -> int:
+        """Count the number of tokens in a text string."""
+        if not hasattr(self, '_tokenizer'):
+            try:
+                import tiktoken
+                self._tokenizer = tiktoken.get_encoding("cl100k_base")
+            except ImportError:
+                # Fallback to simple word count if tiktoken not available
+                self._tokenizer = None
+                return len(text.split()) // 3  # Rough estimate
+        
+        if self._tokenizer:
+            return len(self._tokenizer.encode(text))
+        return len(text.split()) // 3
 
     def _format_evidence_for_prompt(
         self,
@@ -235,19 +320,36 @@ class ReasoningInterpreter:
         # Format the evidence
         evidence_text = self._format_evidence_for_prompt(evidence_sources)
         
-        # Create the base prompt
-        prompt = f"""You are Krod, an AI research assistant. Your task is to answer the user's question using the provided evidence.
+        # Create the base prompt parts
+        system_prompt = "You are Krod, an AI research assistant. Your task is to answer the user's question using the provided evidence."
+        question_prompt = f"Question: {query}"
+        instructions = "Please provide a detailed, step-by-step answer based on the evidence above. For each key point, cite the relevant evidence using [number] notation."
+        
+        # Calculate token budget
+        base_prompt = f"{system_prompt}\n\n{question_prompt}\n\n{instructions}"
+        base_tokens = self._count_tokens(base_prompt)
+        context_tokens = self._count_tokens(str(context)) if context else 0
+        max_evidence_tokens = 8000 - base_tokens - context_tokens - 500  # 500 tokens buffer
+        
+        # Truncate evidence if needed
+        if self._count_tokens(evidence_text) > max_evidence_tokens:
+            self.logger.warning(f"Truncating evidence from {self._count_tokens(evidence_text)} to {max_evidence_tokens} tokens")
+            evidence_text = self._truncate_to_token_limit(evidence_text, max_evidence_tokens)
+        
+        # Build final prompt
+        prompt = f"""{system_prompt}
 
     {evidence_text}
 
-    Question: {query}
+    {question_prompt}
 
-    Please provide a detailed, step-by-step answer based on the evidence above. For each key point, cite the relevant evidence using [number] notation.
-    """
+    {instructions}"""
+
         # Add context if provided
         if context:
-            prompt += f"\nAdditional context: {context}\n"
-            
+            prompt += f"\n\nAdditional context: {context}"
+        
+        self.logger.debug(f"Final prompt token count: {self._count_tokens(prompt)}")
         return prompt
         
 
@@ -317,7 +419,7 @@ class ReasoningInterpreter:
 
         basic_reasoning = {
             "reasoning": basic_reasoning.get("text", ""),
-            "final_response": llm_manager.get("text", ""),
+            "final_response": basic_reasoning.get("text", ""),
             "used_reasoning": True
         }
 
@@ -1112,7 +1214,7 @@ class ReasoningInterpreter:
             }
             
             # Generate reflections using the LLM
-            response = await self.llm_manager.generate_completion(
+            response = await self.llm_manager.generate(
                 prompt_template="reasoning_reflection",
                 prompt_params=prompt,
                 temperature=0.7,

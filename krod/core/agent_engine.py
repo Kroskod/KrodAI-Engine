@@ -5,9 +5,10 @@ This module orchestrates the various components of Krod Ai's agentic research ca
 orchestrating interactions between research, reasoning, and memory components.
 """
 
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, AsyncGenerator, Any
-import logging
+
 from datetime import datetime, timezone
 
 from krod.core.llm_manager import LLMManager
@@ -15,6 +16,7 @@ from krod.core.memory.memory_manager import MemoryManager
 from krod.modules.research.research_agent import ResearchAgent
 from krod.modules.research.reasoning_interpreter import ReasoningInterpreter
 from krod.core.config import Config
+from krod.modules.research.document_processor import EvidenceSource
 
 
 logger = logging.getLogger(__name__)
@@ -24,6 +26,8 @@ class AgentContext:
     """
     Represents the current context of an agent's operations.
     """
+
+
     conversation_id: str
     user_id: str
     messages: List[Dict] = field(default_factory=list)
@@ -65,6 +69,7 @@ class AgentEngine:
             config: Optional configuration overrides
         """
         # Use the centralized config with any overrides
+        self.logger = logging.getLogger(__name__)
         self.config = Config(config or {})
         self.llm_manager = llm_manager
         self.memory_manager = memory_manager
@@ -81,12 +86,13 @@ class AgentEngine:
             config=self.config.get("reasoning", {})
         )
 
-        logger.info("AgentEngine initialized with config: %s", self.config)
+        self.logger.info("AgentEngine initialized with config: %s", self.config)
 
 
     async def process_query(
         self,
         query: str,
+        # response: str,
         context: AgentContext,
         stream: bool = False
     ) -> AsyncGenerator[Dict, None]:
@@ -96,6 +102,7 @@ class AgentEngine:
         
         Args:
             query: User's query
+            # response: The response to store (required)
             context: Current conversation context
             stream: Whether to stream intermediate results
             
@@ -122,24 +129,37 @@ class AgentEngine:
                 if evidence_sources:
                     yield {"type": "evidence", "sources": evidence_sources}
             except Exception as e:
-                logger.error(f"Error in evidence gathering: {str(e)}")
+                self.logger.error(f"Error in evidence gathering: {str(e)}")
                 yield {"type": "error", "content": f"Error gathering evidence: {str(e)}"}
                 return
 
-            # 3 generate reasoning
-            async for step in self._generate_reasoning(
-                query, 
-                evidence_sources, 
-                context
-            ):
-                if stream:
-                    yield step
-                    
-            # 4. Update memory
-            await self._update_memory(query, evidence_sources, context)
-            
+            reasoning_result = await self.reasoning_interpreter.interpret_with_evidence(
+                query=query,
+                evidence_sources=evidence_sources,
+                context=context.metadata,
+                callback=lambda stage, content: self._handle_callback(stage, content, stream)
+            )
+
+            # Get the final response
+            response = reasoning_result.get("final_response", "I couldn't generate a response.")
+
+            # 4. Update memory with the final response
+            await self._update_memory(
+                query=query,
+                response=response,
+                evidence=evidence_sources,
+                context=context
+            )
+
+            # 5. Yield the final response
+            yield {
+                "type": "response",
+                "content": response,
+                "sources": [src.get("url", "") for src in evidence_sources if hasattr(src, "get")]
+            }
+
         except Exception as e:
-            logger.error(f"Error processing query: {str(e)}", exc_info=True)
+            self.logger.error(f"Error processing query: {str(e)}", exc_info=True)
             yield {"type": "error", "content": str(e)}
 
         
@@ -158,7 +178,7 @@ class AgentEngine:
                 context_id=context.conversation_id
             )
         except Exception as e:
-            logger.error(f"Error checking memory: {str(e)}", exc_info=True)
+            self.logger.error(f"Error checking memory: {str(e)}", exc_info=True)
             return None
 
     async def _gather_evidence(
@@ -180,29 +200,30 @@ class AgentEngine:
             # Convert context to dictionary for research method
             context_dict = context.to_dict()
             
-            logger.info(f"Gathering evidence for query: {query}")
-            research_result = await self.research_agent.research(
+            self.logger.info(f"Gathering evidence for query: {query}")
+            research_result = await self.research_agent.research(  # Add await here
                 query=query,
                 context=context_dict,
                 max_sources=self.config.get("max_evidence_sources", 5)
             )
             
             if not research_result:
-                logger.warning("Research agent returned no results")
+                self.logger.warning("Research agent returned no results")
                 return []
                 
             # Extract evidence sources from research result
             evidence = research_result.get("sources", [])
+            self.logger.debug("Research result: %s", research_result)
             
             if not evidence:
-                logger.warning("No evidence sources found in research results")
+                self.logger.warning("No evidence sources found in research results")
                 return []
                 
-            logger.info(f"Found {len(evidence)} evidence sources")
+            self.logger.info(f"Found {len(evidence)} evidence sources")
             return evidence
             
         except Exception as e:
-            logger.error(f"Error gathering evidence: {str(e)}", exc_info=True)
+            self.logger.error(f"Error gathering evidence: {str(e)}", exc_info=True)
             # Return empty list instead of raising to allow processing to continue
             return []
 
@@ -215,10 +236,18 @@ class AgentEngine:
         """
         Generate reasoning based on evidence
         """
+
+        if not evidence:
+            self.logger.warning("No evidence sources provided, using basic reasoning")
+            # Instead of returning, we need to yield the basic reasoning results
+            basic_result = await self._basic_reasoning(query, context)
+            yield {"type": "basic_reasoning", "content": basic_result}
+            return  # This is a valid return with no value, just to exit the generator
+
         try:
             result = await self.reasoning_interpreter.interpret_with_evidence(
                 query=query,
-                evidence_sources=evidence,
+                evidence=evidence,
                 context=context.metadata
             )
             
@@ -238,7 +267,7 @@ class AgentEngine:
             yield {
                 "type": "response",
                 "content": result.get("response", ""),
-                "sources": [src.get("url", "") for src in evidence]
+                "sources": [src.get("url", "") for src in evidence if hasattr(src, "get")]
             }
             
         except Exception as e:
@@ -248,24 +277,31 @@ class AgentEngine:
     async def _update_memory(
         self,
         query: str,
+        response: str,
         evidence: List[Dict],
         context: AgentContext
     ) -> None:
         """
-        Update memory with query and evidence.
-        Store this interaction in memory for future context.
+        Update memory with query and response.
+
+        Args:
+            query: The user's query
+            response: The response to store (required)
+            evidence: List of evidence sources (optional)
+            context: The agent context containing user_id and metadata
+
+        Raises:
+            ValueError: If response is not provided
         """
         try:
-            # Extract the final response from evidence if available
-            response = ""
-            if evidence and len(evidence) > 0:
-                # Try to get the final response from the last evidence item
-                response = evidence[-1].get("content", "")
-            
-            # Prepare metadata with evidence included
+            # Ensure response is passed explicitly
+            if not response:
+                logger.warning("No response provided to memory update. Defaulting to empty string.")
+
+            # Attach evidence to metadata
             metadata = context.metadata or {}
-            metadata["evidence"] = evidence  # Store evidence in metadata instead
-            
+            metadata["evidence"] = evidence or []
+
             await self.memory_manager.update_memory(
                 query=query,
                 response=response,
@@ -276,3 +312,10 @@ class AgentEngine:
         except Exception as e:
             logger.error(f"Error updating memory: {str(e)}", exc_info=True)
             raise
+
+
+    def _handle_callback(self, stage: str, content: Dict, stream: bool) -> None:
+        """Handle callbacks from the reasoning interpreter."""
+        if stream:
+            # You can modify this to format the callback data as needed
+            yield {"type": "reasoning_update", "stage": stage, "content": content}

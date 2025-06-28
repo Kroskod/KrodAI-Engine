@@ -134,7 +134,7 @@ class KrodCLI:
                 self.console.print(f"  • {ref}")
         elif update_type == "response":
             self.console.print("\n[bold]Response:[/bold]")
-            self.console.print(Markdown(content))
+            self.console.print(content)
         elif update_type == "error":
             self.console.print(f"[red]Error: {content}[/red]")
 
@@ -188,6 +188,7 @@ class KrodCLI:
             # Process the query through the agent engine
             async for update in self.engine.process_query(
                 query=command,
+                
                 context=self.context
             ):
                 if update["type"] == "cached":
@@ -241,7 +242,7 @@ class KrodCLI:
             
         # Add the current exchange to history
         self.conversation_history.append({
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'query': query,
             'response': response,
             'sources': sources
@@ -336,7 +337,7 @@ def main():
     cli = KrodCLI(config)
 
     try:
-        import asyncio
+        # import asyncio
         asyncio.run(cli.run())
     except KeyboardInterrupt:
         print("\nKROD was interrupted. Goodbye!")

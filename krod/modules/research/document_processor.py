@@ -173,11 +173,11 @@ class DocumentProcessor:
 
     def format_citations(self, sources: List[EvidenceSource]) -> str:
         """Format a list of sources as citations with confidence indicators."""
-        if not hasattr(self, 'sources') or not self.sources:
+        if not sources:
             return ""
     
         citations = []
-        for i, source in enumerate(self.sources, 1):
+        for i, source in enumerate(sources, 1):
             # Use getattr to safely access attributes
             title = getattr(source, 'title', 'No title')
             url = getattr(source, 'url', '')

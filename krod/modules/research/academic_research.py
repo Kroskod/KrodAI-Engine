@@ -140,7 +140,10 @@ class AcademicSearch:
                 }
                 
                 # Add to vector store
-                await vector_store.add_document(text=text, metadata=metadata)
+                await vector_store.add_documents(
+                    texts=[text],
+                    metadatas=[metadata]
+                )
                 
         except Exception as e:
             self.logger.error(f"Error storing results in vector store: {str(e)}")

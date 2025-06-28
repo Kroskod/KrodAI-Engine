@@ -162,7 +162,13 @@ def main() -> None:
         
         if args.query:
             # Process single query mode
-            engine = AgentEngine(config)
+            # engine = AgentEngine(config)
+            from krod.core.llm_manager import LLMManager
+            from krod.core.memory.memory_manager import MemoryManager
+            
+            llm_manager = LLMManager(config)
+            memory_manager = MemoryManager(config)
+            engine = AgentEngine(llm_manager, memory_manager, config)
             result = engine.process(args.query, args.session)
             print("\nResponse:")
             print("---------")

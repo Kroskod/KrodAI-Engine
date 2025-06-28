@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional
 import requests
 # import crawl4ai
 import asyncio
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+# from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 from .serpapi_provider import SerpAPIProvider
 # from .bing_provider import BingSearchProvider
 import subprocess
@@ -223,7 +223,7 @@ class Crawl4AIProvider(SearchProvider):
                             self.logger.info(f"Using original search result for {url}")
                             enhanced_results.append(url_to_result[url])
             
-                return enhanced_results
+            return enhanced_results
         
         # Run the async function
         try:

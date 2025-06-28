@@ -167,7 +167,7 @@ class MemoryManager:
         response: str,
         context_id: str,
         user_id: str,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict] = None
     ) -> bool:
         """
         Update conversation memory by storing query and response.
@@ -200,7 +200,7 @@ class MemoryManager:
                 memory_data.update(metadata)
                 
             # Store in vector database
-            result = await self.vector_store.add(
+            result = await self.vector_store.add_documents(  
                 texts=[query + " " + response],  # Index both query and response for better retrieval
                 metadatas=[memory_data],
                 collection_name=self.collection
