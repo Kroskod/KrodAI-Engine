@@ -83,20 +83,22 @@ class Crawl4AIProvider(SearchProvider):
             return False
             
         try:
-            # Try importing playwright to check if it's installed
-            import playwright
+            # Check if playwright is available using importlib
+            import importlib.util
+            if importlib.util.find_spec("playwright") is None:
+                self.logger.error("Playwright package not installed.")
+                return False
             
-            # Check if browsers are installed by running a simple command
+            # Check if browsers are installed by trying to list them
             result = subprocess.run(
-                [sys.executable, "-m", "playwright", "install", "--help"],
+                [sys.executable, "-m", "playwright", "install", "--dry-run", "chromium"],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=10
             )
             
             if result.returncode != 0:
-                self.logger.warning("Playwright may not be properly installed. Attempting to install browsers...")
-                # Try to install browsers
+                self.logger.warning("Playwright browsers may not be installed. Attempting to install...")
                 install_result = subprocess.run(
                     [sys.executable, "-m", "playwright", "install", "chromium"],
                     capture_output=True,
@@ -108,11 +110,11 @@ class Crawl4AIProvider(SearchProvider):
                     self.logger.error(f"Failed to install Playwright browsers: {install_result.stderr}")
                     self.logger.error("Web crawling will be disabled. Please run 'playwright install' manually.")
                     return False
-                else:
-                    self.logger.info("Playwright browsers installed successfully")
-                    return True
+                
+                self.logger.info("Playwright browsers installed successfully")
+                return True
             
-            return True
+            return True    
         except (ImportError, subprocess.SubprocessError) as e:
             self.logger.error(f"Playwright check failed: {str(e)}")
             self.logger.error("Web crawling will be disabled. Please install Playwright manually.")
@@ -270,7 +272,7 @@ class Crawl4AIProvider(SearchProvider):
             # Use async with to ensure proper cleanup of resources
             async with AsyncWebCrawler(config=browser_config) as crawler:
                 # Use Crawl4AI's search method directly
-                search_results = await crawler.search(query, max_results=num_results, config=run_cfg)
+                search_results = await crawler.arun(query, max_results=num_results, config=run_cfg)
                 
                 # Process search results
                 for i, result in enumerate(search_results):

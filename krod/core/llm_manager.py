@@ -6,13 +6,13 @@ import logging
 import time
 import os
 import json
+import asyncio
+import aiohttp
 # import openai
 from typing import Dict, Any, List, Optional
-import requests
 from krod.core.token_manager import TokenManager
 from krod.core.vector_store import VectorStore
 from .prompts import PromptManager
-import aiohttp
 
 class LLMManager:
     """
@@ -31,7 +31,9 @@ class LLMManager:
         """
         self.config = config or {}
         self.logger = logging.getLogger(__name__)
-        
+        self.model_name = self.config.get("model_name", "default_model_name")  # Add this line
+        self.logger.info(f"Initializing LLM Manager with model: {self.model_name}")
+
         # Default OpenAI configuration
         self.default_config = {
             "default_provider": "openai",
@@ -61,7 +63,11 @@ class LLMManager:
         
         # Update config with defaults
         self.config = {**self.default_config, **self.config}
+
+        # self._ensure_collection(force_recreate=True)
         
+        self.logger.info(f"VectorStore initialized with model: {self.model_name}")
+
         # Initialize token manager with model-specific limits
         self.token_manager = TokenManager(self.config.get("token_management", {}))
         
@@ -125,7 +131,7 @@ class LLMManager:
                 "prompt_type": prompt_type
             }
 
-    def _call_openai_chat(
+    async def _call_openai_chat(
         self, 
         system_message: str, 
         user_message: str, 
@@ -552,11 +558,11 @@ Please provide a natural, context-aware response."""
             
             # Generate based on provider
             if provider == "openai":
-                response = self._generate_openai(formatted_prompt, model, temperature, max_tokens)
+                response = await self._generate_openai(formatted_prompt, model, temperature, max_tokens)
             elif provider == "anthropic":
-                response = self._generate_anthropic(formatted_prompt, model, temperature, max_tokens)
+                response = await self._generate_anthropic(formatted_prompt, model, temperature, max_tokens)
             elif provider == "cohere":
-                response = self._generate_cohere(formatted_prompt, model, temperature, max_tokens)
+                response = await self._generate_cohere(formatted_prompt, model, temperature, max_tokens)
             else:
                 raise ValueError(f"Unsupported provider: {provider}")
             

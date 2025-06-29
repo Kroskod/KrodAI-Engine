@@ -411,7 +411,7 @@ class ReasoningInterpreter:
 
         # Generate reasoning using the llm directly instead of the reasoning system
         basic_reasoning = await self.llm_manager.generate(
-            evidence_prompt,
+            prompt=evidence_prompt,
             model="gpt-3.5-turbo",  # or your preferred model
             temperature=0.7,
             max_tokens=1000

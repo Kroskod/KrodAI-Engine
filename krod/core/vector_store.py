@@ -33,17 +33,17 @@ class VectorStore:
         """
         self.logger = logging.getLogger("krod.vector_store")
         self.config = config or {}
-        
-        # Initialize embedding model
-        self.model_name = self.config.get("embedding_model", "all-MiniLM-L6-v2")
+    
+        # Initialize embedding model FIRST
+        self.model_name = self.config.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2")
         self.embedding_model = SentenceTransformer(self.model_name)
         self.embedding_size = self.embedding_model.get_sentence_embedding_dimension()
-        
+        self.logger.info(f"Initialized embedding model: {self.model_name} (dimension: {self.embedding_size})")
+    
         # Initialize Qdrant client
         qdrant_url = self.config.get("qdrant_url", "http://localhost:6333")
         persist_dir = self.config.get("persist_dir", "./qdrant_data")
         force_local = self.config.get("force_local", False)
-        self.qdrant_client = QdrantClient(url=qdrant_url)
         
         # Try to connect to Qdrant server first, fall back to local if needed
         if qdrant_url and not force_local:
@@ -66,16 +66,49 @@ class VectorStore:
             
         # Collection configuration
         self.collection_name = self.config.get("collection_name", "krod_documents")
-        self._ensure_collection()
+        
+        # NOW ensure collection exists with correct dimensions
+        force_recreate = self.config.get("force_recreate", False)
+        self._ensure_collection(force_recreate=force_recreate)
         
         self.logger.info(f"VectorStore initialized with model: {self.model_name}")
 
-    def _ensure_collection(self):
-        """Ensure the Qdrant collection exists with proper configuration."""
-        collections = self.qdrant_client.get_collections().collections
-        collection_names = [c.name for c in collections]
+    def validate_collection_dimension(self):
+        info = self.qdrant_client.get_collection(collection_name=self.collection_name)
+        actual_dim = info.config.params.vectors.size
+        if actual_dim != self.embedding_size:
+            raise ValueError(
+                f"Vector dimension mismatch for '{self.collection_name}': expected {self.embedding_size}, got {actual_dim}"
+            )
+
+    def _ensure_collection(self, force_recreate: bool = False):
+        """Ensure the Qdrant collection exists with the correct dimensions."""
+        try:
+            # First check if collection exists
+            collections = self.qdrant_client.get_collections().collections
+            collection_names = [c.name for c in collections]
+            
+            if self.collection_name in collection_names:
+                if force_recreate:
+                    self.logger.info(f"Deleting existing collection: {self.collection_name}")
+                    self.qdrant_client.delete_collection(collection_name=self.collection_name)
+                    self.qdrant_client.create_collection(
+                        collection_name=self.collection_name,
+                        vectors_config=VectorParams(size=self.embedding_size, distance=Distance.COSINE)
+                    )
+                else:
+                    # Only validate if we're not force recreating
+                    try:
+                        self.validate_collection_dimension()
+                        self.logger.info(f"Using existing collection: {self.collection_name}")
+                        return
+                    except ValueError as e:
+                        self.logger.warning(f"Collection validation failed: {str(e)}")
+                        if not force_recreate:
+                            self.logger.info("Set force_recreate=True to recreate the collection")
+                            raise
         
-        if self.collection_name not in collection_names:
+            # Create new collection with correct dimensions
             self.qdrant_client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(
@@ -83,14 +116,16 @@ class VectorStore:
                     distance=Distance.COSINE
                 )
             )
-            self.logger.info(f"Created new collection: {self.collection_name}")
-        else:
-            self.logger.info(f"Collection '{self.collection_name}' already exists")
-
+            self.logger.info(f"Created collection '{self.collection_name}' with vector size {self.embedding_size}")
+        
+        except Exception as e:
+            self.logger.error(f"Error ensuring collection: {str(e)}")
+            raise
+    
     async def ensure_collection_exists(
         self,
         collection_name: str, 
-        vector_size: int = 768,  # Default to 768 if not specified
+        vector_size: Optional[int] = None,  # Default to 768 if not specified
         recreate: bool = False
     ) -> None:
         """
@@ -103,19 +138,19 @@ class VectorStore:
         """
         try:
             # Check if collection exists
-            collections = await self.qdrant_client.get_collections()
+            collections = self.qdrant_client.get_collections()
             collection_names = [c.name for c in collections.collections]
             
             if collection_name in collection_names:
                 if recreate:
-                    await self.qdrant_client.delete_collection(collection_name)
+                    self.qdrant_client.delete_collection(collection_name)
                     self.logger.info(f"Recreated collection: {collection_name}")
                 else:
                     self.logger.debug(f"Collection exists: {collection_name}")
                     return
             
             # Create the collection if it doesn't exist or was recreated
-            await self.qdrant_client.create_collection(
+            self.qdrant_client.create_collection(
                 collection_name=collection_name,
                 vectors_config=VectorParams(
                     size=vector_size,
@@ -124,7 +159,7 @@ class VectorStore:
             )
             
             # Wait until collection is ready
-            await self.qdrant_client.get_collection(collection_name)
+            self.qdrant_client.get_collection(collection_name)
             self.logger.info(f"Created collection: {collection_name}")
         
         except Exception as e:
@@ -154,7 +189,7 @@ class VectorStore:
         metadatas: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None,
         ids: Optional[List[Union[str, int]]] = None,
         collection_name: Optional[str] = None,
-        vector_size: int = 768
+        vector_size: Optional[int] = None  # Make this optional
     ) -> List[str]:
         """
         Add multiple documents to the vector store with optional metadata.
@@ -189,7 +224,7 @@ class VectorStore:
             # Ensure collection exists
             await self.ensure_collection_exists(
                 collection_name=collection,
-                vector_size=vector_size
+                vector_size= self.embedding_size
             )
 
             batch_size = 32
@@ -209,6 +244,19 @@ class VectorStore:
                         show_progress_bar=len(batch_texts) > 5,
                         convert_to_numpy=True
                     )
+                    
+                    # Debug: Check embedding dimensions
+                    if i == 0:  # Only log for first batch to avoid too much logging
+                        self.logger.debug(f"Embedding model: {self.model_name}")
+                        self.logger.debug(f"Input texts: {len(batch_texts)}")
+                        self.logger.debug(f"Embeddings shape: {embeddings.shape}")
+                        self.logger.debug(f"Expected vector size: {self.embedding_size}")
+                        if embeddings.shape[1] != self.embedding_size:
+                            self.logger.warning(
+                                f"Warning: Embedding dimension mismatch! "
+                                f"Expected {self.embedding_size} but got {embeddings.shape[1]}."
+                                f"This may cause issues with Qdrant."
+                            )
 
                     # Create points
                     for j, (text, embedding, metadata) in enumerate(zip(batch_texts, embeddings, batch_metadatas)):
@@ -227,7 +275,7 @@ class VectorStore:
 
                     # Upload to Qdrant
                     if points:
-                        await self.qdrant_client.upsert(  # Fixed: Use qdrant_client, not client
+                        self.qdrant_client.upsert(  # Fixed: Use qdrant_client, not client
                             collection_name=collection,
                             points=points,
                             wait=True
@@ -245,6 +293,10 @@ class VectorStore:
         except Exception as e:
             self.logger.error(f"Failed to add documents: {str(e)}", exc_info=True)
             raise
+
+    async def recreate_collection(self):
+        self.logger.info(f"Recreating collection: {self.collection_name}")
+        # self._ensure_collection(force_recreate=True)
 
     def search_by_metadata(self, filter_dict: Dict[str, Any], limit: int = 10) -> List[Dict[str, Any]]:
         """
@@ -273,7 +325,7 @@ class VectorStore:
             next_page_offset = None
             
             while len(results) < limit:
-                scroll_result = self.client.scroll(
+                scroll_result = self.qdrant_client.scroll(
                     collection_name=self.collection_name,
                     scroll_filter=filter_condition,
                     limit=min(100, limit - len(results)),
@@ -338,7 +390,7 @@ class VectorStore:
         try:
             # Check if collection exists and has points
             try:
-                collection_info = self.client.get_collection(self.collection_name)
+                collection_info = self.qdrant_client.get_collection(self.collection_name)
                 if collection_info.vectors_count == 0:
                     self.logger.warning(f"Collection {self.collection_name} exists but is empty")
                     return []
@@ -372,7 +424,7 @@ class VectorStore:
                 qdrant_filter = Filter(must=must_conditions)
             
             # Search Qdrant
-            search_result = self.client.search(
+            search_result = self.qdrant_client.search(
                 collection_name=self.collection_name,
                 query_vector=query_embedding,
                 query_filter=qdrant_filter,
@@ -448,7 +500,7 @@ class VectorStore:
             Document if found, else None
         """
         try:
-            result = self.client.retrieve(
+            result = self.qdrant_client.retrieve(
                 collection_name=self.collection_name,
                 ids=[point_id],
                 with_payload=True
@@ -479,7 +531,7 @@ class VectorStore:
             True if successful
         """
         try:
-            self.client.delete(
+            self.qdrant_client.delete(
                 collection_name=self.collection_name,
                 points_selector=ids
             )
@@ -497,7 +549,7 @@ class VectorStore:
             Number of documents
         """
         try:
-            collection_info = self.client.get_collection(self.collection_name)
+            collection_info = self.qdrant_client.get_collection(self.collection_name)
             return collection_info.vectors_count
         except Exception as e:
             self.logger.error(f"Failed to count documents: {str(e)}")
