@@ -88,7 +88,7 @@ class LLMManager:
         self.prompt_manager = PromptManager()
 
 
-    def generate_structured(
+    async def generate_structured(
         self, 
         prompt_type: str,
         **kwargs
@@ -108,7 +108,7 @@ class LLMManager:
             prompt = self.prompt_manager.get_prompt(prompt_type, **kwargs)
             
             # Call the LLM with the formatted prompt
-            response = self._call_openai_chat(
+            response = await self._call_openai_chat(
                 system_message=prompt["system"],
                 user_message=prompt["user"],
                 temperature=prompt.get("temperature", 0.7),
@@ -179,7 +179,48 @@ class LLMManager:
             self.logger.error(f"OpenAI API call failed: {str(e)}")
             raise
             
+    async def generate_text(
+        self,
+        prompt: str,
+        model: str = "gpt-3.5-turbo",
+        max_tokens: int = 4000,
+        temperature: float = 0.7,
         
+    ) -> Dict[str, Any]:
+        """
+        Generate text using system and user prompts.
+
+        Returns:
+            A dictionary with success flag, content or error message, and metadata.
+        """
+        try:
+            response = await self._call_openai_chat(
+                system_message=prompt,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+
+            choices = response.get("choices", [])
+            if not choices or not choices[0].get("message"):
+                raise ValueError("No valid message in response.")
+
+            return {    
+                "success": True,
+                "text": choices[0]["message"]["content"],
+                "usage": response.get("usage", {}),
+                "model": response.get("model", self.config.get("default_model", "unknown")),
+                "prompt_type": "text"
+            }
+
+        except Exception as e:
+            self.logger.error(f"generate_text failed: {str(e)}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e),
+                "prompt_type": "text"
+            }
+
     
     # New methods for multi-stage prompting
     async def generate_reasoning(

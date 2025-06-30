@@ -1214,9 +1214,9 @@ class ReasoningInterpreter:
             }
             
             # Generate reflections using the LLM
-            response = await self.llm_manager.generate(
-                prompt_template="reasoning_reflection",
-                prompt_params=prompt,
+            response = await self.llm_manager.generate_structured(
+                prompt_type="reasoning_reflection",
+                **prompt,
                 temperature=0.7,
                 max_tokens=1000
             )
