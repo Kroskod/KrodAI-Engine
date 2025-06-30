@@ -33,6 +33,14 @@ class EvidenceSource:
         if self.confidence < 0 or self.confidence > 1:
             raise ValueError("Confidence must be between 0 and 1")
 
+    @property
+    def content(self) -> Optional[str]:
+        """
+        Backward compatibility property that returns the extract.
+        Some code may still be using .content instead of .extract
+        """
+        return self.extract
+
     def to_citation(self) -> str:
         """Format as a citation string."""
         date_str = self.published_date.strftime("%Y-%m-%d") if self.published_date else "n.d."
@@ -166,15 +174,20 @@ class DocumentProcessor:
     def format_citations(self, sources: List[EvidenceSource]) -> str:
         """Format a list of sources as citations with confidence indicators."""
         if not sources:
-            return "No sources cited."
-            
-        citations = ["**Sources:**"]
-        for i, src in enumerate(sources, 1):
-            confidence = f" (Confidence: {src.confidence:.0%})" if hasattr(src, 'confidence') else ""
-            citations.append(
-                f"{i}. {src.to_citation()}{confidence}"
-                f"\n   Source: {src.url}"
-                f"\n   Extract: {getattr(src, 'extract', '')[:150]}..."
-            )
-            
-        return "\n".join(citations)
+            return ""
+    
+        citations = []
+        for i, source in enumerate(sources, 1):
+            # Use getattr to safely access attributes
+            title = getattr(source, 'title', 'No title')
+            url = getattr(source, 'url', '')
+            published_date = getattr(source, 'published_date', '')
+        
+            citation = f"[{i}] {title}"
+            if url:
+                citation += f" ({url})"
+            if published_date:
+                citation += f" - {published_date}"
+            citations.append(citation)
+    
+        return "\n\n## References\n\n" + "\n".join(citations)

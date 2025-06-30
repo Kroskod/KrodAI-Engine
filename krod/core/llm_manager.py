@@ -6,9 +6,10 @@ import logging
 import time
 import os
 import json
+import asyncio
+import aiohttp
 # import openai
 from typing import Dict, Any, List, Optional
-import requests
 from krod.core.token_manager import TokenManager
 from krod.core.vector_store import VectorStore
 from .prompts import PromptManager
@@ -30,7 +31,9 @@ class LLMManager:
         """
         self.config = config or {}
         self.logger = logging.getLogger(__name__)
-        
+        self.model_name = self.config.get("model_name", "default_model_name")  # Add this line
+        self.logger.info(f"Initializing LLM Manager with model: {self.model_name}")
+
         # Default OpenAI configuration
         self.default_config = {
             "default_provider": "openai",
@@ -60,7 +63,11 @@ class LLMManager:
         
         # Update config with defaults
         self.config = {**self.default_config, **self.config}
+
+        # self._ensure_collection(force_recreate=True)
         
+        self.logger.info(f"VectorStore initialized with model: {self.model_name}")
+
         # Initialize token manager with model-specific limits
         self.token_manager = TokenManager(self.config.get("token_management", {}))
         
@@ -124,7 +131,7 @@ class LLMManager:
                 "prompt_type": prompt_type
             }
 
-    def _call_openai_chat(
+    async def _call_openai_chat(
         self, 
         system_message: str, 
         user_message: str, 
@@ -175,7 +182,7 @@ class LLMManager:
         
     
     # New methods for multi-stage prompting
-    def generate_reasoning(
+    async def generate_reasoning(
         self, 
         query: str, 
         context: Optional[Dict[str, Any]] = None
@@ -193,7 +200,7 @@ class LLMManager:
         context_str = json.dumps(context) if context else ""
         return self.generate_structured("reasoning", query=query, context=context_str)
     
-    def generate_clarification(
+    async def generate_clarification(
         self, 
         query: str, 
         reasoning: Optional[str] = None
@@ -210,7 +217,7 @@ class LLMManager:
         """
         return self.generate_structured("clarification", query=query, reasoning=reasoning or "")
     
-    def generate_synthesis(
+    async def generate_synthesis(
         self, 
         query: str, 
         reasoning: str, 
@@ -238,7 +245,7 @@ class LLMManager:
             context=context_str
         )
     
-    def generate_reflection(
+    async def generate_reflection(
         self, 
         query: str, 
         reasoning: str, 
@@ -287,7 +294,7 @@ class LLMManager:
         """
         templates = {
             "general": {
-                "chat": """You are Krod, a professional AI research assistant with expertise across multiple domains. 
+                "chat": """You are Krod AI, a professional Ai research partner for research amplification. 
                 Your responses should be:
                 - Natural and conversational
                 - Professional yet friendly
@@ -302,12 +309,12 @@ class LLMManager:
                 Respond naturally while maintaining professional expertise. For greetings or casual conversation, 
                 keep responses friendly and brief. For technical queries, provide detailed assistance.""",
                 
-                "greeting": """You are Krod, a professional AI research assistant.
+                "greeting": """You are Krod AI, a professional AI research partner for research amplification.
                 Respond naturally and warmly to this greeting. Keep it simple and friendly.
                 
                 User message: {input}""",
                 
-                "farewell": """You are Krod, a professional AI research assistant.
+                "farewell": """You are Krod AI, a professional AI research partner for research amplification.
                 Respond warmly to this farewell or thank you message. Keep it simple and genuine.
                 
                 User message: {input}"""
@@ -475,7 +482,7 @@ class LLMManager:
             # Fall back to basic substitution of just the input
             return template.replace("{input}", input_text)
     
-    def generate(self, 
+    async def generate(self, 
                 prompt: str, 
                 provider: Optional[str] = None, 
                 model: Optional[str] = None,
@@ -551,11 +558,11 @@ Please provide a natural, context-aware response."""
             
             # Generate based on provider
             if provider == "openai":
-                response = self._generate_openai(formatted_prompt, model, temperature, max_tokens)
+                response = await self._generate_openai(formatted_prompt, model, temperature, max_tokens)
             elif provider == "anthropic":
-                response = self._generate_anthropic(formatted_prompt, model, temperature, max_tokens)
+                response = await self._generate_anthropic(formatted_prompt, model, temperature, max_tokens)
             elif provider == "cohere":
-                response = self._generate_cohere(formatted_prompt, model, temperature, max_tokens)
+                response = await self._generate_cohere(formatted_prompt, model, temperature, max_tokens)
             else:
                 raise ValueError(f"Unsupported provider: {provider}")
             
@@ -599,9 +606,15 @@ Please provide a natural, context-aware response."""
                 }
             }
     
-    def _generate_openai(self, prompt: str, model: str, temperature: float, max_tokens: int) -> str:
+    async def _generate_openai(
+        self,
+        prompt: str,
+        model: str,
+        temperature: float,
+        max_tokens: int
+    ) -> str:
         """
-        Generate a response using OpenAI's API.
+        Async version: Generate a response using OpenAI's API with aiohttp.
         """
         api_key = self.api_keys["openai"]
         url = "https://api.openai.com/v1/chat/completions"
@@ -610,14 +623,13 @@ Please provide a natural, context-aware response."""
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}"
         }
-        
-        # Add system message to set the tone
+
         data = {
             "model": model,
             "messages": [
                 {
                     "role": "system",
-                    "content": """You are Krod, a professional AI research assistant. 
+                    "content": """You are Krod AI, a professional AI research partner. Built by Kroskod Labs under Sarthak Sharma as a founder and Chief Research Architect.
                     Respond naturally and conversationally while maintaining expertise. 
                     For greetings and casual conversation, keep responses simple and friendly. 
                     For technical queries, provide detailed assistance."""
@@ -627,26 +639,22 @@ Please provide a natural, context-aware response."""
             "temperature": temperature,
             "max_tokens": max_tokens
         }
-        
+
         try:
-            # Add timeout parameter (30 seconds)
-            response = requests.post(url, headers=headers, json=data, timeout=30)
-            
-            if response.status_code == 200:
-                return response.json()["choices"][0]["message"]["content"]
-            else:
-                error_msg = f"OpenAI API error: {response.status_code} - {response.text}"
-                self.logger.error(error_msg)
-                return f"I apologize, but I encountered an error processing your request. Please try again in a moment."
-            
-        except requests.exceptions.Timeout:
-            error_msg = "Request timed out while waiting for response"
-            self.logger.error(error_msg)
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, json=data, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status == 200:
+                        result = await resp.json()
+                        return result["choices"][0]["message"]["content"]
+                    else:
+                        text = await resp.text()
+                        self.logger.error(f"OpenAI API error: {resp.status} - {text}")
+                        return "I apologize, but I encountered an error processing your request."
+        except asyncio.TimeoutError:
+            self.logger.error("Request timed out while waiting for response")
             return "I apologize, but the request timed out. Please try again in a moment."
-        
-        except requests.exceptions.RequestException as e:
-            error_msg = f"Error making request: {str(e)}"
-            self.logger.error(error_msg)
+        except aiohttp.ClientError as e:
+            self.logger.error(f"Error making request: {str(e)}")
             return "I apologize, but there was an error processing your request. Please try again in a moment."
     
     def _generate_anthropic(self, prompt: str, model: str, temperature: float, max_tokens: int) -> str:

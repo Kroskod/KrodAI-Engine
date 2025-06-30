@@ -9,8 +9,9 @@ import logging
 import time
 import json
 from enum import Enum
-from typing import Dict, List, Any, Optional, Union, Tuple
+from typing import Dict, List, Any, Optional, Union, Tuple, Callable
 from dataclasses import dataclass
+import tiktoken
 
 from krod.core.llm_manager import LLMManager
 from krod.core.reasoning import ReasoningSystem
@@ -80,7 +81,7 @@ class ReasoningChain:
                             "title": source.title,
                             "url": source.url,
                             "confidence": source.confidence,
-                            "strength": source.strength.value
+                            # "strength": source.strength.value
                         } for source in step.evidence
                     ],
                     "is_inference": step.is_inference,
@@ -98,6 +99,33 @@ class ReasoningChain:
             ] if self.reflections else [],
             "citations": self.format_citations(include_markdown=False)
         }
+
+    def _count_tokens(self, text: str, model: str = "gpt-4") -> int:
+        """
+        Count tokens in text for a given model.
+        """
+        try:
+            enc = tiktoken.encoding_for_model(model)
+            return len(enc.encode(text))
+        except Exception:
+            # Fallback: ~4 chars per token
+            return len(text) // 4
+
+    # def _truncate_to_token_limit(
+    #     self, 
+    #     text: str, 
+    #     max_tokens: int = 8000,
+    #     model: str = "gpt-4"
+    # ) -> str:
+    #     """ 
+
+    #     Truncate text to fit within token limit.
+    #     """
+    #     enc = tiktoken.encoding_for_model(model)
+    #     tokens = enc.encode(text)
+    #     if len(tokens) <= max_tokens:
+    #         return text
+    #     return enc.decode(tokens[:max_tokens])
 
     def format_citations(self, include_markdown: bool = True) -> Union[str, List[Dict[str, Any]]]:
         """
@@ -117,8 +145,8 @@ class ReasoningChain:
             citations = []
             for i, source in enumerate(sources, 1):
                 citation = f"[{i}] {source.title}. {source.authors}. "
-                if source.publication_date:
-                    citation += f"{source.publication_date}. "
+                if source.published_date:
+                    citation += f"{source.published_date}. "
                 citation += f"{source.url}"
                 citations.append(citation)
 
@@ -129,7 +157,7 @@ class ReasoningChain:
                     "index": i,
                     "title": source.title,
                     "authors": source.authors,
-                    "publication_date": source.publication_date,
+                    "published_date": source.published_date,
                     "url": source.url,
                     "source_type": source.source_type,
                     "confidence": source.confidence
@@ -179,11 +207,158 @@ class ReasoningInterpreter:
 
         self.logger.info("Reasoning interpreter initialized")
 
+    def _truncate_to_token_limit(
+        self, 
+        text: str, 
+        max_tokens: int = 8000,
+        model: str = "gpt-4"
+    ) -> str:
+        """
+        Truncate text to fit within token limit.
+        
+        Args:
+            text: Input text to truncate
+            max_tokens: Maximum number of tokens allowed
+            model: Model name for tokenization
+            
+        Returns:
+            Truncated text that fits within the token limit
+        """
+        try:
+            enc = tiktoken.encoding_for_model(model)
+            tokens = enc.encode(text)
+            
+            if len(tokens) <= max_tokens:
+                return text 
+                
+            # Log the truncation
+            self.logger.info(
+                f"Truncating text from {len(tokens)} to {max_tokens} tokens "
+                f"({len(tokens) - max_tokens} tokens removed)"
+            )
+            
+            # Truncate and decode back to text
+            truncated_text = enc.decode(tokens[:max_tokens])
+            return truncated_text
+            
+        except Exception as e:
+            self.logger.warning(
+                f"Error in token truncation: {str(e)}. "
+                "Falling back to character-based truncation."
+            )
+            # Fallback: truncate by characters (rough estimate)
+            return text[:max_tokens * 4]  # ~4 chars per token
+
+
+    def _count_tokens(self, text: str) -> int:
+        """Count the number of tokens in a text string."""
+        if not hasattr(self, '_tokenizer'):
+            try:
+                import tiktoken
+                self._tokenizer = tiktoken.get_encoding("cl100k_base")
+            except ImportError:
+                # Fallback to simple word count if tiktoken not available
+                self._tokenizer = None
+                return len(text.split()) // 3  # Rough estimate
+        
+        if self._tokenizer:
+            return len(self._tokenizer.encode(text))
+        return len(text.split()) // 3
+
+    def _format_evidence_for_prompt(
+        self,
+        evidence_sources: List[EvidenceSource]
+    ) -> str:
+        """
+        Format evidence sources into a prompt-safe string.
+
+        Args:
+            evidence_sources: List of evidence sources to format
+
+        Returns:
+            Formatted evidence string with citations
+        """
+        # format evidence sources into a prompt-safe string
+        if not evidence_sources:
+            return "No evidence available"
+
+        formatted_evidence = "Use the following evidence to answer the user's query:\n\n"
+
+        for i, source in enumerate(evidence_sources, 1):
+
+            # get content from source
+            content = getattr(source, 'extract', None) or getattr(source, 'content', '')
+
+            # get title and url from source
+            title = getattr(source, 'title', 'Untitled')
+            url = getattr(source, 'url', 'No URL')
+        
+            formatted_evidence += (
+                f"[{i}] {content}\n"
+                f"Source: {title} ({url})\n\n"
+            )
+
+        return formatted_evidence
+    
+    def _create_evidence_based_prompt(
+        self, 
+        query: str, 
+        evidence_sources: List[EvidenceSource],
+        context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Create a prompt that includes evidence for the LLM.
+        
+        Args:
+            query: The user's query
+            evidence_sources: List of evidence sources
+            context: Optional additional context
+            
+        Returns:
+            Formatted prompt string
+        """
+        # Format the evidence
+        evidence_text = self._format_evidence_for_prompt(evidence_sources)
+        
+        # Create the base prompt parts
+        system_prompt = "You are Krod, an AI research assistant. Your task is to answer the user's question using the provided evidence."
+        question_prompt = f"Question: {query}"
+        instructions = "Please provide a detailed, step-by-step answer based on the evidence above. For each key point, cite the relevant evidence using [number] notation."
+        
+        # Calculate token budget
+        base_prompt = f"{system_prompt}\n\n{question_prompt}\n\n{instructions}"
+        base_tokens = self._count_tokens(base_prompt)
+        context_tokens = self._count_tokens(str(context)) if context else 0
+        max_evidence_tokens = 8000 - base_tokens - context_tokens - 500  # 500 tokens buffer
+        
+        # Truncate evidence if needed
+        if self._count_tokens(evidence_text) > max_evidence_tokens:
+            self.logger.warning(f"Truncating evidence from {self._count_tokens(evidence_text)} to {max_evidence_tokens} tokens")
+            evidence_text = self._truncate_to_token_limit(evidence_text, max_evidence_tokens)
+        
+        # Build final prompt
+        prompt = f"""{system_prompt}
+
+    {evidence_text}
+
+    {question_prompt}
+
+    {instructions}"""
+
+        # Add context if provided
+        if context:
+            prompt += f"\n\nAdditional context: {context}"
+        
+        self.logger.debug(f"Final prompt token count: {self._count_tokens(prompt)}")
+        return prompt
+        
+
     async def interpret_with_evidence(
         self,
         query: str,
         evidence_sources: List[EvidenceSource],
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
     ) -> Dict[str, Any]:
         """
         Interpret a query with evidence-based reasoning.
@@ -192,6 +367,9 @@ class ReasoningInterpreter:
             query: The user's query
             evidence_sources: List of evidence sources to consider
             context: Optional additional context
+            callback: Optional callback function that receives intermediate results
+                with the signature: callback(stage: str, content: Dict[str, Any])
+                where stage is one of: 'reasoning', 'explanation', 'verification', 'updated_reasoning', 'reflections', 'final', 'error'
 
         Returns:
             Dictionary with reasoning chain, explanation, and response
@@ -199,9 +377,18 @@ class ReasoningInterpreter:
         start_time = time.time()
         self.logger.debug("Generating evidence-based reasoning for query: %s", query)
 
+        def _notify(stage: str, content: Dict[str, Any]) -> None:
+            """Helper to safely call the callback if provided"""
+            if callback:
+                try:
+                    callback(stage, content)
+                except Exception as e:
+                    self.logger.error(f"Error in callback: {e}", exc_info=True)
+
         # Edge case: No evidence sources
         if not evidence_sources:
             self.logger.warning("No evidence sources provided for query: %s", query)
+            _notify("error", {"message": "No evidence sources available"})
             return {
                 "success": False,
                 "error": "No evidence sources available",
@@ -219,12 +406,28 @@ class ReasoningInterpreter:
                 }
             }
 
-        # Step 1: Generate basic reasoning using the core reasoning system
-        basic_reasoning = self.reasoning_system.analyze_query(query, context)
+        # Step 1: Generate evidence-based reasoning using the core reasoning system
+        evidence_prompt = self._create_evidence_based_prompt(query, evidence_sources, context)
+
+        # Generate reasoning using the llm directly instead of the reasoning system
+        basic_reasoning = await self.llm_manager.generate(
+            prompt=evidence_prompt,
+            model="gpt-3.5-turbo",  # or your preferred model
+            temperature=0.7,
+            max_tokens=1000
+        )
+
+        basic_reasoning = {
+            "reasoning": basic_reasoning.get("text", ""),
+            "final_response": basic_reasoning.get("text", ""),
+            "used_reasoning": True
+        }
+
 
         # Edge case: Failed to generate reasoning
         if not basic_reasoning.get("used_reasoning", False):
             self.logger.warning("Failed to generate basic reasoning for query: %s", query)
+            _notify("error", {"message": "Failed to generate basic reasoning"})
             return {
                 "success": False,
                 "error": "Failed to generate basic reasoning",
@@ -267,10 +470,32 @@ class ReasoningInterpreter:
             reflections=[]
         )
 
-        # Step 6: Self-verification - Ask if the reasoning and clarification are sound
+        # Send initial reasoning to callback
+        _notify("reasoning", {
+            "reasoning_steps": [step.statement for step in validated_steps],
+            "explanations": [step.explanation for step in validated_steps],
+            "confidence": overall_confidence
+        })
+
+        # Step 6: Generate an explanation with citations
+        explanation = self._generate_explanation_with_citations(reasoning_chain)
+
+        # Send explanation to callback
+        _notify("explanation", {
+            "explanation": explanation,
+            "confidence": overall_confidence
+        })
+
+        # Step 7: Self-verification - Ask if the reasoning and clarification are sound
         verification_result = await self._verify_reasoning(reasoning_chain, query)
 
-        # Step 7: If verification failed, regenerate reasoning and clarification
+        # Notify about verification result
+        _notify("verification", {
+            "is_valid": verification_result.get("is_valid", True),
+            "issues": verification_result.get("issues", [])
+        })
+
+        # Step 8: If verification failed, regenerate reasoning and clarification
         if not verification_result["is_valid"]:
             self.logger.info("Self-verification failed, regenerating reasoning")
 
@@ -319,6 +544,17 @@ class ReasoningInterpreter:
                         importance=0.8
                     )
                 )
+
+            # Update explanation with new reasoning
+            explanation = self._generate_explanation_with_citations(reasoning_chain)
+
+            # Send updated reasoning and explanation
+            _notify("updated_reasoning", {
+                "reasoning_steps": [step.statement for step in new_validated_steps],
+                "explanations": [step.explanation for step in new_validated_steps],
+                "explanation": explanation,
+                "confidence": reasoning_chain.overall_confidence
+            })
         else:
             # Add positive reflection about verification
             reasoning_chain.reflections.append(
@@ -329,15 +565,54 @@ class ReasoningInterpreter:
                 )
             )
 
-        # Step 8: Generate additional reflections
-        additional_reflections = await self._generate_reflections(reasoning_chain, query)
-        reasoning_chain.reflections.extend(additional_reflections)
+        # Step 9: Generate additional reflections
+        additional_reflections = await self.generate_reflections(reasoning_chain.steps, query)
 
-        # Step 9: Generate an explanation with citations
-        explanation = self._generate_explanation_with_citations(reasoning_chain)
+        # Convert dictionary reflections to ReasoningReflection objects
+        for reflection in additional_reflections:
+            category = reflection.get("category", "")
+            content = reflection.get("content", "")
+            importance = reflection.get("importance", 0.5)
 
-        # Step 10: Format the final response
+            # Map category string to ReasoningReflectionType enum
+            reflection_type = None
+            if category == "strengths":
+                reflection_type = ReasoningReflectionType.STRENGTH
+            elif category == "weaknesses":
+                reflection_type = ReasoningReflectionType.WEAKNESS
+            elif category == "alternative_perspectives":
+                reflection_type = ReasoningReflectionType.ALTERNATIVE
+            elif category == "improvements":
+                reflection_type = ReasoningReflectionType.IMPROVEMENT
+            else:
+                # Default to improvement for unknown categories
+                reflection_type = ReasoningReflectionType.IMPROVEMENT
+
+            # Handle both string and list content formats
+            if isinstance(content, list):
+                content = "\n".join(content)
+
+            reasoning_chain.reflections.append(ReasoningReflection(
+                reflection_type=reflection_type,
+                content=content,
+                importance=importance
+            ))
+
+        # Notify about reflections
+        _notify("reflections", {
+            "reflections": [{"type": r.reflection_type.value, "content": r.content} 
+                           for r in reasoning_chain.reflections]
+        })
+
+        # Step 10: Format the final response (using the explanation we already generated)
         final_response = self._format_final_response(reasoning_chain, explanation)
+
+        # Send final response
+        _notify("final", {
+            "response": final_response,
+            "citations": reasoning_chain.format_citations(include_markdown=False),
+            "confidence": reasoning_chain.overall_confidence
+        })
 
         # Step 11: Create structured output for frontend
         structured_output = reasoning_chain.to_dict()
@@ -351,7 +626,7 @@ class ReasoningInterpreter:
             "explanation": explanation,
             "response": final_response,
             "processing_time": processing_time,
-            "confidence": overall_confidence,
+            "confidence": reasoning_chain.overall_confidence,
             "structured_output": structured_output,
             "verification_result": verification_result
         }
@@ -570,35 +845,41 @@ class ReasoningInterpreter:
             Explanation text with citations
         """
         explanation = "## Reasoning Process\n\n"
-
-        # Add each reasoning step with evidence
+    
         for i, step in enumerate(reasoning_chain.steps, 1):
             explanation += f"**Step {i}:** {step.statement}\n\n"
-
-            # Add evidence and confidence
-            if step.evidence:
+        
+            if hasattr(step, 'evidence') and step.evidence:
                 explanation += "_Evidence:_ "
                 sources = []
-                for j, source in enumerate(step.evidence):
-                    # Find the index of this source in the unique sources list
-                    source_index = reasoning_chain.get_unique_sources().index(source) + 1
-                    sources.append(f"[{source_index}]")
-                explanation += ", ".join(sources) + "\n\n"
-
-            # Add confidence level
-            confidence_text = self._format_confidence(step.confidence)
-            explanation += f"_Confidence:_ {confidence_text}\n\n"
-
-        # Add conclusion
-        explanation += f"## Conclusion\n\n{reasoning_chain.conclusion}\n\n"
-
-        # Add overall confidence
-        overall_confidence_text = self._format_confidence(reasoning_chain.overall_confidence)
-        explanation += f"_Overall Confidence:_ {overall_confidence_text}\n\n"
-
-        # Add citations
-        explanation += reasoning_chain.format_citations()
-
+                for source in step.evidence:
+                    if hasattr(reasoning_chain, 'get_unique_sources'):
+                        try:
+                            source_index = reasoning_chain.get_unique_sources().index(source) + 1
+                            sources.append(f"[{source_index}] {source.title}")
+                        except (ValueError, AttributeError):
+                            continue
+                if sources:
+                    explanation += ", ".join(sources) + "\n\n"
+    
+        # Add conclusion if it exists
+        if hasattr(reasoning_chain, 'conclusion'):
+            explanation += f"## Conclusion\n\n{reasoning_chain.conclusion}\n\n"
+    
+        # Add overall confidence if it exists
+        if hasattr(reasoning_chain, 'overall_confidence'):
+            overall_confidence_text = self._format_confidence(reasoning_chain.overall_confidence)
+            explanation += f"_Overall Confidence:_ {overall_confidence_text}\n\n"
+    
+        # Append citations / references section if available
+        if hasattr(reasoning_chain, 'format_citations'):
+            citations_md = reasoning_chain.format_citations()
+            if citations_md:
+                # Ensure citations start on a new line
+                if not citations_md.startswith("\n"):
+                    explanation += "\n"
+                explanation += citations_md
+ 
         return explanation
 
     def _format_confidence(self, confidence: float) -> str:
@@ -616,20 +897,76 @@ class ReasoningInterpreter:
 
     def _format_final_response(self, reasoning_chain: ReasoningChain, explanation: str) -> str:
         """
-        Format the final response with reasoning and citations.
+        Format the final response with clear sections for reasoning, clarification, and final response.
+
+        Structure:
+        1. Reasoning Trace
+        2. Reasoning Clarification (Why I thought so)
+        3. Final Response with References
 
         Args:
             reasoning_chain: The complete reasoning chain
-            explanation: The detailed explanation
+            explanation: The detailed explanation/clarification
 
         Returns:
-            Formatted final response
+            Formatted final response string
         """
-        # For now, we'll use the explanation as the final response
-        # In a more sophisticated implementation, this might be formatted differently
-        # based on the user's preferences or the context
-
-        return explanation
+        try:
+            response_parts = []
+            
+            # 1. Reasoning Trace Section
+            response_parts.append("## Reasoning Trace\n")
+            if hasattr(reasoning_chain, 'steps') and reasoning_chain.steps:
+                for i, step in enumerate(reasoning_chain.steps, 1):
+                    # Show the reasoning step with confidence
+                    confidence = getattr(step, 'confidence', None)
+                    confidence_str = f" (Confidence: {self._format_confidence(confidence)})" if confidence is not None else ""
+                    response_parts.append(f"{i}. {step.statement}{confidence_str}")
+            else:
+                response_parts.append("No reasoning steps available.")
+            
+            # 2. Reasoning Clarification Section
+            response_parts.append("\n## Why I Thought So\n")
+            if explanation and not isinstance(explanation, dict) or 'error' not in explanation:
+                clarification = explanation if not isinstance(explanation, dict) else explanation.get('text', '')
+                response_parts.append(clarification)
+            else:
+                response_parts.append("No additional clarification available.")
+            
+            # 3. Final Response Section
+            response_parts.append("\n## Final Response\n")
+            if hasattr(reasoning_chain, 'conclusion') and reasoning_chain.conclusion:
+                response_parts.append(reasoning_chain.conclusion)
+            
+            # Add overall confidence if available
+            if hasattr(reasoning_chain, 'overall_confidence'):
+                confidence_level = self._format_confidence(reasoning_chain.overall_confidence)
+                response_parts.append(f"\n**Confidence Level:** {confidence_level} ({reasoning_chain.overall_confidence:.1%})")
+            
+            # Add references at the end
+            citations = reasoning_chain.format_citations(include_markdown=True)
+            if citations:
+                response_parts.append("\n### References\n")
+                response_parts.append(citations)
+            
+            # Add reflections if available
+            if hasattr(reasoning_chain, 'reflections') and reasoning_chain.reflections:
+                response_parts.append("\n### Reflections\n")
+                for i, reflection in enumerate(reasoning_chain.reflections, 1):
+                    reflection_type = getattr(reflection, 'reflection_type', '').value.title()
+                    response_parts.append(f"- **{reflection_type}:** {reflection.content}")
+            
+            return "\n".join(part for part in response_parts if part)
+            
+        except Exception as e:
+            self.logger.error(f"Error formatting final response: {str(e)}")
+            # Fallback to simple formatting if there's an error
+            fallback = []
+            if hasattr(reasoning_chain, 'conclusion') and reasoning_chain.conclusion:
+                fallback.append(reasoning_chain.conclusion)
+            if explanation and (not isinstance(explanation, dict) or 'error' not in explanation):
+                fallback.append(explanation if not isinstance(explanation, dict) else explanation.get('text', ''))
+            return "\n\n".join(fallback)
 
     async def explain_rationale(self, query: str, response: str) -> str:
         """
@@ -652,9 +989,14 @@ class ReasoningInterpreter:
         """
         result = await self.llm_manager.generate(
             prompt,
+            model="gpt-4o",
             temperature=0.3,
             max_tokens=1000
         )
+
+        if result.get("error"):
+            self.logger.error(f"Error explaining rationale: {result.get('error')}")
+            return ""
         return result.get("text", "")
 
     async def _verify_reasoning(
@@ -709,6 +1051,7 @@ class ReasoningInterpreter:
             # Generate verification
             result = await self.llm_manager.generate(
                 prompt,
+                model="gpt-4o",
                 temperature=0.2,
                 max_tokens=500
             )
@@ -830,141 +1173,120 @@ class ReasoningInterpreter:
 
         return reasoning_text
 
-    async def _generate_reflections(
+    async def generate_reflections(
         self,
-        reasoning_chain: ReasoningChain,
+        reasoning_chain: List[ReasoningStep],
         query: str
-    ) -> List[ReasoningReflection]:
+    ) -> List[Dict[str, Any]]:
         """
-        Generate additional reflections on the reasoning process.
+        Generate reflections on the reasoning process.
         
         Args:
-            reasoning_chain: The reasoning chain to reflect on
+            reasoning_chain: The reasoning steps to reflect on
             query: The original query
             
         Returns:
-            List of additional reasoning reflections
+            List of reflections on the reasoning process
+        """
+        self.logger.info("Generating reflections on reasoning")
+        
+        if not reasoning_chain:
+            self.logger.warning("No reasoning chain provided for reflection")
+            return [{"category": "warning", "content": "No reasoning chain available for reflection", "importance": 5}]
+            
+        try:
+            # Format the reasoning chain for the LLM
+            formatted_reasoning = "\n".join([
+                f"Step {i+1}: {step.statement}" 
+                for i, step in enumerate(reasoning_chain)
+            ])
+            
+            # Create the prompt for reflection generation
+            prompt = {
+                "query": query,
+                "reasoning_chain": formatted_reasoning,
+                "reflection_types": [
+                    "strengths", 
+                    "weaknesses", 
+                    "alternative_perspectives", 
+                    "improvements"
+                ]
+            }
+            
+            # Generate reflections using the LLM
+            response = await self.llm_manager.generate(
+                prompt_template="reasoning_reflection",
+                prompt_params=prompt,
+                temperature=0.7,
+                max_tokens=1000
+            )
+            
+            # Parse the reflections from the response
+            try:
+                reflections_text = response.get("content", "")
+                reflections = self._parse_reflections(reflections_text)
+                self.logger.info(f"Generated {len(reflections)} reflections")
+                return reflections
+            except Exception as e:
+                self.logger.error(f"Error parsing reflections: {str(e)}")
+                return [{"category": "error", "content": f"Error generating reflections: {str(e)}", "importance": 5}]
+                
+        except Exception as e:
+            self.logger.error(f"Error generating reflections: {str(e)}")
+            return [{"category": "error", "content": f"Error generating reflections: {str(e)}", "importance": 5}]
+        
+    def _parse_reflections(self, reflections_text: str) -> List[Dict[str, Any]]:
+        """
+        Parse reflections from the LLM response.
+        
+        Args:
+            reflections_text: The text containing reflections
+            
+        Returns:
+            List of parsed reflections
         """
         reflections = []
         
-        try:
-            # Analyze confidence distribution
-            confidences = [step.confidence for step in reasoning_chain.steps]
-            avg_confidence = sum(confidences) / len(confidences) if confidences else 0
-            min_confidence = min(confidences) if confidences else 0
-            
-            # Analyze evidence distribution
-            evidence_counts = [len(step.evidence) for step in reasoning_chain.steps]
-            steps_without_evidence = sum(1 for count in evidence_counts if count == 0)
-            
-            # Generate reflections based on confidence
-            if avg_confidence < 0.6:
-                reflections.append(
-                    ReasoningReflection(
-                        reflection_type=ReasoningReflectionType.WEAKNESS,
-                        content="The overall confidence in this reasoning is relatively low, suggesting limited evidence or uncertainty.",
-                        importance=0.8
-                    )
-                )
-            elif avg_confidence > 0.8:
-                reflections.append(
-                    ReasoningReflection(
-                        reflection_type=ReasoningReflectionType.STRENGTH,
-                        content="The reasoning is supported by strong evidence with high confidence.",
-                        importance=0.7
-                    )
-                )
-            
-            # Generate reflections based on evidence gaps
-            if steps_without_evidence > 0:
-                reflections.append(
-                    ReasoningReflection(
-                        reflection_type=ReasoningReflectionType.WEAKNESS,
-                        content=f"{steps_without_evidence} reasoning steps lack direct supporting evidence and rely on inference.",
-                        importance=0.75
-                    )
-                )
-            
-            # Identify weakest link in reasoning
-            if confidences:
-                weakest_step_index = confidences.index(min_confidence)
-                weakest_step = reasoning_chain.steps[weakest_step_index]
+        # Simple parsing based on section headers
+        sections = {
+            "strengths": [],
+            "weaknesses": [],
+            "alternative_perspectives": [],
+            "improvements": []
+        }
+        
+        current_section = None
+        
+        for line in reflections_text.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
                 
-                if min_confidence < 0.5:
-                    reflections.append(
-                        ReasoningReflection(
-                            reflection_type=ReasoningReflectionType.IMPROVEMENT,
-                            content=f"The step '{weakest_step.statement[:50]}...' has low confidence and could benefit from additional evidence.",
-                            importance=0.85
-                        )
-                    )
-            
-            # Generate alternative perspective reflection if confidence is not very high
-            if reasoning_chain.overall_confidence < 0.85:
-                reflections.append(
-                    ReasoningReflection(
-                        reflection_type=ReasoningReflectionType.ALTERNATIVE,
-                        content="Alternative interpretations of the evidence may be possible. Consider exploring additional sources for a more complete perspective.",
-                        importance=0.7
-                    )
-                )
-                
-            # Generate LLM-based reflection for more nuanced analysis
-            if len(reasoning_chain.steps) > 0:
-                # Create a prompt for LLM to reflect on the reasoning
-                steps_text = "\n".join([f"- {step.statement}" for step in reasoning_chain.steps[:5]])
-                
-                prompt = f"""
-                Analyze the following reasoning chain that answers the query: "{query}"
-                
-                Reasoning steps:
-                {steps_text}
-                
-                Conclusion: {reasoning_chain.conclusion}
-                
-                Provide ONE key insight about the quality, completeness, or limitations of this reasoning.
-                Be specific, concise (max 30 words), and insightful. Focus on the most important aspect.
-                """
-                
-                try:
-                    result = await self.llm_manager.generate(
-                        prompt,
-                        temperature=0.7,
-                        max_tokens=100
-                    )
+            # Check if this is a section header
+            lower_line = line.lower()
+            for section in sections:
+                if section in lower_line or section.replace("_", " ") in lower_line:
+                    current_section = section
+                    break
                     
-                    llm_reflection = result.get("text", "").strip()
-                    if llm_reflection:
-                        # Determine reflection type based on content
-                        reflection_type = ReasoningReflectionType.WEAKNESS
-                        if any(word in llm_reflection.lower() for word in ["strong", "robust", "thorough", "comprehensive"]):
-                            reflection_type = ReasoningReflectionType.STRENGTH
-                        elif any(word in llm_reflection.lower() for word in ["could", "should", "would benefit", "needs"]):
-                            reflection_type = ReasoningReflectionType.IMPROVEMENT
-                        elif any(word in llm_reflection.lower() for word in ["alternative", "other", "different", "perspective"]):
-                            reflection_type = ReasoningReflectionType.ALTERNATIVE
-                            
-                        reflections.append(
-                            ReasoningReflection(
-                                reflection_type=reflection_type,
-                                content=llm_reflection,
-                                importance=0.9  # LLM-generated reflections are given high importance
-                            )
-                        )
-                except Exception as e:
-                    self.logger.error(f"Error generating LLM reflection: {str(e)}")
-            
-            # Limit to top 3 most important reflections to avoid overwhelming
-            reflections.sort(key=lambda r: r.importance, reverse=True)
-            return reflections[:3]
-            
-        except Exception as e:
-            self.logger.error(f"Error generating reflections: {str(e)}")
-            # Return a generic reflection as fallback
-            return [
-                ReasoningReflection(
-                    reflection_type=ReasoningReflectionType.IMPROVEMENT,
-                    content="The reasoning process could benefit from additional evidence and verification.",
-                    importance=0.6
-                )
-            ]
+            # If we have a current section and this isn't a header, add to that section
+            if current_section and not any(s in lower_line for s in sections):
+                # Remove bullet points and numbering
+                clean_line = line
+                if line.startswith("- ") or line.startswith("* "):
+                    clean_line = line[2:]
+                elif line[0].isdigit() and line[1:3] in [". ", ") "]:
+                    clean_line = line[3:]
+                    
+                sections[current_section].append(clean_line)
+                
+        # Convert sections to reflection objects
+        for reflection_type, items in sections.items():
+            if items:
+                reflections.append({
+                    "category": reflection_type,
+                    "content": items,
+                    "importance": 0.8  # Default importance
+                })
+                
+        return reflections

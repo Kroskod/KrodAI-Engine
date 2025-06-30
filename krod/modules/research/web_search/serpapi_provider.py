@@ -23,16 +23,30 @@ class SerpAPIProvider:
         if not self.api_key:
             raise ValueError("SerpAPI API key is required. Set SERPAPI_API_KEY environment variable.")
         
-        self.session = None
+        self.session: Optional[aiohttp.ClientSession] = None
+        self._session_owner = False
         self.logger = logging.getLogger(__name__)
 
+    async def init(self):
+        """Manually initialize session if not using async with."""
+        if self.session is None or self.session.closed:
+            self.session = aiohttp.ClientSession()
+            self._session_owner = True
+
+    async def close(self):
+        """Manually close session to avoid leaks."""
+        if self._session_owner and self.session and not self.session.closed:
+            await self.session.close()
+            self.session = None
+            self._session_owner = False
+
     async def __aenter__(self):
-        self.session = aiohttp.ClientSession()
+        await self.init()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            await self.session.close()
+        await self.close()
+
 
     @retry(
         stop=stop_after_attempt(3),
