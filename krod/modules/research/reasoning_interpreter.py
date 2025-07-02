@@ -1212,11 +1212,25 @@ class ReasoningInterpreter:
                     "improvements"
                 ]
             }
+
+            # Generate reflections using the LLM
+            reflection_prompt = f"""
+            Original Query: {query}
+            
+            Reasoning Chain:
+            {formatted_reasoning}
+            
+            Please provide reflections on this reasoning process, categorizing them as:
+            - Strengths
+            - Weaknesses
+            - Alternative perspectives
+            - Improvements
+            """
             
             # Generate reflections using the LLM
             response = await self.llm_manager.generate_structured(
-                prompt_type="reasoning_reflection",
-                **prompt,
+                # prompt_type="reasoning_reflection",
+                prompt=reflection_prompt,
                 temperature=0.7,
                 max_tokens=1000
             )
