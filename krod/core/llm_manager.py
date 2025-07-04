@@ -196,9 +196,9 @@ class LLMManager:
         try:
             response = await self._call_openai_chat(
                 system_message=prompt,
-                model=model,
+                user_message="", 
                 temperature=temperature,
-                max_tokens=max_tokens,
+                max_tokens=max_tokens
             )
 
             choices = response.get("choices", [])

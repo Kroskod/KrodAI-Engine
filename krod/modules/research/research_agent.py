@@ -9,7 +9,7 @@ comprehensive, evidence-based responses to research queries.
 import logging
 # import asyncio
 import time
-from typing import Dict, List, AsyncGenerator, Optional, Any, Callable
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 from krod.core.llm_manager import LLMManager

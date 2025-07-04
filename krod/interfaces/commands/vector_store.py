@@ -78,7 +78,7 @@ async def recreate(collection: str, confirm: bool):
         click.echo(f"Successfully recreated collection '{collection}'")
     except Exception as e:
         click.echo(f"Error recreating collection: {str(e)}", err=True)
-        raise click.ClickException(str(e))
+        raise click.ClickException(str(e)) from e
 
 @vector_store.command()
 @click.option('--file', required=True, type=click.Path(exists=True), help='File containing documents to ingest')

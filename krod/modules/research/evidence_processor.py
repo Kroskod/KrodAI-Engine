@@ -4,10 +4,12 @@ Krod Evidence Processor - Processes and cleans evidence sources for futher proce
 
 import logging
 import tiktoken
+import re
+
 from bs4 import BeautifulSoup
 from dataclasses import dataclass
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from krod.core.llm_manager import LLMManager
 from krod.modules.research.document_processor import EvidenceSource
 
@@ -79,9 +81,9 @@ class EvidenceProcessor:
         
         # second pass: clean and structure each source individually
         total_tokens = sum(self._count_tokens(source.extract or "") for source in processed_sources)
-        if total_tokens > self.max_evidence_tokens:
+        if total_tokens > self.max_evidence_token:
             try:
-                self.logger.info(f"Total evidence tokens ({total_tokens}) exceeds limit ({self.max_evidence_tokens}). Performing cross-source optimization.")
+                self.logger.info(f"Total evidence tokens ({total_tokens}) exceeds limit ({self.max_evidence_token}). Performing cross-source optimization.")
                 processed_sources = await self._optimize_across_sources(processed_sources, query)
             except Exception as e:
                 self.logger.warning(f"Failed to truncate evidence sources: {str(e)}", exc_info=True)
@@ -107,28 +109,29 @@ class EvidenceProcessor:
         """
 
         # Step 1: Clean Html if needed. 
-        if self.enable_html_cleaning and self._is_likely_html(source.content):
-            content = self._clean_html(source.content)
+        content = source.extract or ""
+        if self.enable_html_cleaning and self._is_likely_html(content):
+            content = self._clean_html(content)
 
         # step 2: structure the content
         try:
             if self.enable_summarization and self._count_tokens(content) > self.max_evidence_per_source:
-                structured_content = self._summarize_and_structure(content, query, source)
+                structured_content = await self._summarize_and_structure(content, query, source)
             else:
                 structured_content = self._basic_structure(content)
         except Exception as e:
             self.logger.warning(f"Failed to structure evidence source {source.url}: {str(e)}", exc_info=True)
+            structured_content = content  # Fall back to original content
         
         # create a new source with the processed content
         processed_evidence = EvidenceSource(
             url=source.url,
             title=source.title,
             source_type=source.source_type,
-            published_data=source.published_date,
+            published_date=source.published_date,
             authors=source.authors,
             confidence=source.confidence,
             extract=structured_content,
-            content=source.content,
         )
 
         return processed_evidence
@@ -358,9 +361,9 @@ Structured Information:"""
             )
             
             # Process the response
-            if response and isinstance(response, str):
+            if response and response.get("success") and response.get("text"):
                 # Clean up the response
-                lines = response.split('\n')
+                lines = response["text"].split('\n')
                 # Remove any non-bullet point lines at the beginning (like "Here's the structured information:")
                 while lines and not any(line.strip().startswith(('•', '-', '*', '1.')) for line in lines[:1]):
                     lines.pop(0)
@@ -401,18 +404,18 @@ Structured Information:"""
         
         # Calculate token budget per source
         total_sources = len(sorted_sources)
-        base_tokens_per_source = self.max_evidence_tokens // total_sources
+        base_tokens_per_source = self.max_evidence_token // total_sources
         
         # Adjust token allocation based on confidence
         total_confidence = sum(s.confidence for s in sorted_sources)
         optimized_sources = []
         
-        remaining_tokens = self.max_evidence_tokens
+        remaining_tokens = self.max_evidence_token    
         
         for source in sorted_sources:
             # Allocate tokens proportionally to confidence
             weight = source.confidence / total_confidence if total_confidence > 0 else 1/total_sources
-            allocated_tokens = min(int(self.max_evidence_tokens * weight), remaining_tokens)
+            allocated_tokens = min(int(self.max_evidence_token * weight), remaining_tokens)
             
             # Ensure minimum tokens per source
             allocated_tokens = max(allocated_tokens, 200)  # At least 200 tokens per source
@@ -485,7 +488,7 @@ Structured Information:"""
             else:
                 segments = text.split("\n")
                 
-            # Keep adding segments until we hit the token limit
+            # keep adding segments until we hit the token limit
             result = []
             current_count = 0
             
