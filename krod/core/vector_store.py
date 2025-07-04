@@ -296,7 +296,31 @@ class VectorStore:
 
     async def recreate_collection(self):
         self.logger.info(f"Recreating collection: {self.collection_name}")
-        # self._ensure_collection(force_recreate=True)
+        # Delete the collection if it exists
+        try:
+            collections = self.qdrant_client.get_collections().collections
+            collection_names = [c.name for c in collections]
+            
+            if self.collection_name in collection_names:
+                self.logger.info(f"Deleting existing collection: {self.collection_name}")
+                self.qdrant_client.delete_collection(collection_name=self.collection_name)
+        except Exception as e:
+            self.logger.error(f"Error deleting collection: {str(e)}")
+            
+        # Create new collection with correct dimensions
+        try:
+            self.qdrant_client.create_collection(
+                collection_name=self.collection_name,
+                vectors_config=VectorParams(
+                    size=self.embedding_size,
+                    distance=Distance.COSINE
+                )
+            )
+            self.logger.info(f"Created collection '{self.collection_name}' with vector size {self.embedding_size}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error creating collection: {str(e)}")
+            raise
 
     def search_by_metadata(self, filter_dict: Dict[str, Any], limit: int = 10) -> List[Dict[str, Any]]:
         """

@@ -9,7 +9,8 @@ comprehensive, evidence-based responses to research queries.
 import logging
 # import asyncio
 import time
-from typing import Optional, Dict, Any, List 
+from typing import Dict, List, Optional, Any
+from datetime import datetime
 
 from krod.core.llm_manager import LLMManager
 from krod.core.vector_store import VectorStore
@@ -213,6 +214,9 @@ class ResearchAgent:
             
             # convert results to evidence sources
             evidence_sources = []
+            documents_to_ingest = []
+            metadatas_to_ingest = []
+            
             for result in results:
                 if not isinstance(result, dict):
                     self.logger.warning(f"Skipping non-dictionary result: {result}")
@@ -243,8 +247,32 @@ class ResearchAgent:
                         extract=content
                     )
                     evidence_sources.append(source)
+                    
+                    # Prepare for vector store ingestion
+                    if content:
+                        documents_to_ingest.append(content)
+                        metadatas_to_ingest.append({
+                            "url": result.get("url", ""),
+                            "title": result.get("title", "Unknown"),
+                            "source_type": "web",
+                            "authors": result.get("source", ""),
+                            "ingestion_time": datetime.now().isoformat()
+                        })
+                        
                 except Exception as e:
                     self.logger.error(f"Error creating evidence source: {str(e)}")
+            
+            # Ingest documents into vector store if we have any
+            if documents_to_ingest:
+                self.logger.info(f"Ingesting {len(documents_to_ingest)} documents into vector store")
+                try:
+                    await self.vector_store.add_documents(
+                        texts=documents_to_ingest,
+                        metadatas=metadatas_to_ingest
+                    )
+                    self.logger.info(f"Successfully ingested {len(documents_to_ingest)} documents into vector store")
+                except Exception as e:
+                    self.logger.error(f"Error ingesting documents into vector store: {str(e)}")
             
             # Add existing sources if provided
             if existing_sources:

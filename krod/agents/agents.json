@@ -1,0 +1,36 @@
+[
+    {
+        "name": "ResearchAgent",
+        "type": "research",
+        "function": "research_agent.run",
+        "module_path": "krod.modules.research.research_agent",
+        "class_name": "ResearchAgent",
+        "description": "Handles evidence-based research queries using web, document, and academic sources. Returns structured evidence and reasoning.",
+        "capabilities": [
+            "research",
+            "document_processing",
+            "academic_search",
+            "web_search",
+            "reasoning_interpretation"
+        ],
+        "input_schema": {
+          "query": "string",
+          "context": "object"
+
+        },
+        "output_schema": {
+          "reasoning": "string",
+          "evidence_sources": "list"
+        },
+
+        "trigger": {
+            "type": "keyword",
+            "keywords": [
+                "research"
+            ]
+        },
+
+        "enabled": true
+
+      }
+]

@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional
 import requests
 # import crawl4ai
 import asyncio
-# from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 from .serpapi_provider import SerpAPIProvider
 # from .bing_provider import BingSearchProvider
 import subprocess
@@ -58,15 +58,15 @@ class Crawl4AIProvider(SearchProvider):
         self.fallback_provider_name = fallback_provider
         if fallback_provider == "serpapi":
             self.fallback_provider = SerpAPIProvider()
-        # elif fallback_provider == "bing":
-        #     self.fallback_provider = BingSearchProvider()
+        # elif fallback_provider == "crawl4ai":
+        #     self.fallback_provider = Crawl4AIProvider()
         else:
             self.fallback_provider = SerpAPIProvider()
             self.logger.warning(f"Unknown fallback provider '{fallback_provider}', using SerpAPI")
     
         # Check if crawl4ai is installed
         try:
-            import crawl4ai
+            # import crawl4ai
             self.crawl4ai_available = True
             self.logger.info("Crawl4AI library detected")
         except ImportError:
@@ -140,15 +140,32 @@ class Crawl4AIProvider(SearchProvider):
 
         # Step 1: Use fallback provider to get inital search results (URLs)
         self.logger.info(f"Getting initial search results for '{query}' using {self.fallback_provider_name}")
-        search_results = await self.fallback_provider.search(query, num_results)
-
-        if not search_results:
-            self.logger.warning(f"No search results found for query '{query}'")
-            return []
+        try:
+            search_results = await self.fallback_provider.search(query, num_results)
+            if not search_results:
+                self.logger.warning(f"No search results found for query '{query}' using {self.fallback_provider_name}")
+                self.logger.error(f"Attempting direct Crawl4AI search for query as fallback")
+                try:
+                    search_results = await self._direct_crawl4ai_search(query, num_results)
+                except Exception as e:
+                    self.logger.error(f"Error in direct Crawl4AI search: {str(e)}", exc_info=True)
+                    return []
+        except Exception as e:
+            self.logger.warning(f"Fallback provider {self.fallback_provider_name} failed: {str(e)}")
+            self.logger.error(f"Attempting direct Crawl4AI search for query as fallback")
+            try:
+                search_results = await self._direct_crawl4ai_search(query, num_results)
+            except Exception as e:
+                self.logger.error(f"Error in direct Crawl4AI search: {str(e)}", exc_info=True)
+                return []
 
         # Step 2: Use Crawl4AI to fetch and extract content from search results 
         self.logger.info(f"Searching {len(search_results)} URLs")
-        enhanced_results = await self._crawl_urls([result["url"] for result in search_results], search_results)
+        try:
+            enhanced_results = await self._crawl_urls([result["url"] for result in search_results], search_results)
+        except Exception as e:
+            self.logger.error(f"Error in Crawl4AI search: {str(e)}", exc_info=True)
+            return []
 
         search_time = time.time() - start_time
         self.logger.info(f"Krod search completed in {search_time:.2f}s, found {len(enhanced_results)} results")

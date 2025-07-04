@@ -32,3 +32,5 @@ notepad/
 qdrant_storage/
 qdrant_data/
 qdrant_logs/
+
+normal.md
