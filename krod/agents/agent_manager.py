@@ -8,21 +8,22 @@ The module implementats a two-phase approach:
 2. Agent Routing: Selects and dispatch appropriate agents based on the intent. 
 """
 
+# NOTE: This is the master orchestrator for Krod agent workflows.
+# NOTE: Don’t mess with this unless you know exactly what you’re doing.
+
 
 import os 
 import logging
 import json
-# import re
-# import asyncio
+import asyncio
 import importlib
 
 # from sys import modules
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any, List, Union
 from krod.core.llm_manager import LLMManager
 from krod.core.memory.memory_manager import MemoryManager
 from krod.core.agent_context import AgentContext
-
-
+from collections.abc import AsyncGenerator
 # todo: 
 
 
@@ -102,7 +103,7 @@ class AgentManager:
             self.logger.error(f"Error loading agents definitions: {str(e)}", exc_info=True)
             return []
     
-    def _get_agents_instance(self, agent_config: Dict) -> Any:
+    def _get_agent_instance(self, agent_config: Dict) -> Any:
         """
         Get or create an intance of an agent based on its configuration.
 
@@ -118,6 +119,7 @@ class AgentManager:
             return None
 
         # generate a unique instance key
+
         instance_key = agent_config.get("name")
 
         # return existing instance if available
@@ -140,13 +142,13 @@ class AgentManager:
 
 
             # create agent instance
-            agents_instance = agent_class(
+            agents_instances = agent_class(
                 llm_manager=self.llm_manager
             )
 
             # cache agent instance
-            self.agents_instances[instance_key] = agents_instance
-            return agents_instance
+            self.agents_instances[instance_key] = agents_instances
+            return agents_instances
 
         except ImportError as e:
             self.logger.error(f"Error importing agent module {module_path}: {str(e)}", exc_info=True)
@@ -367,17 +369,17 @@ class AgentManager:
             self.logger.info(f"Invoking agent: {agent_name}")
             
             # get the agent instance
-            agents_instance = self._get_agents_instance(agent_config)
-            if not agents_instance:
+            agent_instance = self._get_agent_instance(agent_config)
+            if not agent_instance:
                 raise ValueError(f"Failed to get instance for agent {agent_name}")
             
             # get the method to call
             method_name = agent_config.get("method", "process")
-            if not hasattr(agents_instance, method_name):
+            if not hasattr(agent_instance, method_name):
                 raise ValueError(f"Method {method_name} not found on agent {agent_name}")
             
             # call the agent method
-            method = getattr(agents_instance, method_name)
+            method = getattr(agent_instance, method_name)
             result = await method(
                 query=query,
                 context=context.to_dict(),
@@ -436,25 +438,25 @@ class AgentManager:
                     if "agent_name" in resp:
                         agent_names.append(resp.get("agent_name"))
                     
-                if not response_texts:
-                    return {
-                        "success": False,
-                        "response": "All agents failed to provide valid responses"
-                    }
-
-                # if we have multiple responses, use LLM to merge them
-                if len(response_texts) > 1:
-                    merged_response = await self._merge_text_with_llm(response_texts, agent_names)
-                else:
-                    merged_response = response_texts[0]
-                
-                # return merged response
+            if not response_texts:
                 return {
-                    "success": True,
-                    "response": merged_response,
-                    "evidence_sources": evidence_sources,
-                    "contributing_agents": agent_names
+                    "success": False,
+                    "response": "All agents failed to provide valid responses"
                 }
+
+            # if we have multiple responses, use LLM to merge them
+            if len(response_texts) > 1:
+                merged_response = await self._merge_text_with_llm(response_texts, agent_names)
+            else:
+                merged_response = response_texts[0]
+                
+            # return merged response
+            return {
+                "success": True,
+                "response": merged_response,
+                "evidence_sources": evidence_sources,
+                "contributing_agents": agent_names
+            }
         except Exception as e:
             self.logger.error(f"Error merging responses: {str(e)}")
             # Return the first successful response as fallback
@@ -483,7 +485,7 @@ class AgentManager:
             # create a prompt for mergring
             prompt = "You need to merge multiple agent responses into a single coherent response.\n\n"
             
-            for i, (text, agent) in enumerate(zip(texts, agent_names)):
+            for text, agent in zip(texts, agent_names):
                 prompt += f"Response from {agent}:\n{text}\n\n"
             
             prompt += "Create a single coherent response that combines the information from all agents. Ensure the response is comprehensive, non-repetitive, and well-structured."
