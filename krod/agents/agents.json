@@ -38,7 +38,7 @@
         "name": "SynthesisAgent",
         "type": "synthesis",
         "function": "synthesis_agent.run",
-        "module_path": "krod.modules.synthesis.synthesis_agent",
+        "module_path": "krod.agents.synthesis_agent",
         "class_name": "SynthesisAgent",
         "description": "Handles synthesis of information from multiple sources. Returns a single coherent response.",
         "capabilities": [

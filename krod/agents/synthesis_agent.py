@@ -6,8 +6,8 @@ Handles synthesis of information from multiple agents. Returns a single coherent
 
 import logging
 import json
-from typing import Optional, Dict, Any, List, Union, Tuple
-from krod.core import reasoning
+from typing import Optional, Dict, Any, List
+# from krod.core import reasoning
 from krod.core.llm_manager import LLMManager
 from krod.core.agent_context import AgentContext
 
@@ -22,8 +22,8 @@ class SynthesisAgent:
     """
 
     def __init__(self,
-    llm_manager: LLMManager,
-    config: Optional[Dict] = None):
+        llm_manager: LLMManager,
+        config: Optional[Dict] = None):
 
         """
         Initialise the synthesis agent.
@@ -189,7 +189,7 @@ class SynthesisAgent:
 
         # parse json response
         try:
-            parsed_result = json.loads(result["content"])
+            parsed_result = json.loads(result["text"])
             
             # Validate expected structure
             if not isinstance(parsed_result, dict) or "response" not in parsed_result:
@@ -206,7 +206,7 @@ class SynthesisAgent:
         except (json.JSONDecodeError, ValueError) as e:
             self.logger.warning(f"Failed to parse synthesised response: {e}")
             return {
-                "response": result["content"],
+                "response": result["text"],
                 "sources": [],
                 "confidence": 0.5,
                 "synthesis_notes": "Raw response due to parsing error"
@@ -280,18 +280,18 @@ class SynthesisAgent:
             
         # Parse JSON response
         try:
-            parsed_result = json.loads(result["content"])
+            parsed_result = json.loads(result["text"])
             return parsed_result
         except json.JSONDecodeError:
             self.logger.warning("Failed to parse memory response as JSON")
             return {
-                "response": result["content"],
+                "response": result["text"],
                 "sources": [],
                 "confidence": 0.5,
                 "synthesis_notes": "Raw response due to parsing error"
             }
 
-    async def format_research_response(
+    async def _format_research_response(
         self, 
         query: str, 
         research_data: Dict[str, Any], 
@@ -381,20 +381,20 @@ class SynthesisAgent:
 
         # Parse JSON response
         try:
-            parsed_result = json.loads(result["content"])
+            parsed_result = json.loads(result["text"])
             
             # Validate and ensure required fields
             return {
                 "response": parsed_result.get("response", reasoning or "Unable to format research response"),
                 "sources": parsed_result.get("sources", self._extract_sources_from_evidence(evidence_sources)),
-                "confidence": result.get("confidence", 0.6),
-                "synthesis_notes": result.get("synthesis_notes", "Formatted research response")
+                "confidence": parsed_result.get("confidence", 0.6),
+                "synthesis_notes": parsed_result.get("synthesis_notes", "Formatted research response")
             }
             
         except json.JSONDecodeError:
             self.logger.warning("Failed to parse research response as JSON")
             return {
-                "response": result["content"],
+                "response": result["text"],
                 "sources": self._extract_sources_from_evidence(evidence_sources),
                 "confidence": 0.6,
                 "synthesis_notes": "Raw response due to parsing error"
@@ -486,12 +486,12 @@ class SynthesisAgent:
             
         # Parse JSON response
         try:
-            result = json.loads(result["content"])
+            result = json.loads(result["text"])
             return result
         except json.JSONDecodeError:
             self.logger.warning("Failed to parse synthesis response as JSON")
             return {
-                "response": result["content"],
+                "response": result["text"],
                 "sources": [],
                 "confidence": 0.5
             }
@@ -562,20 +562,20 @@ class SynthesisAgent:
 
         # Parse JSON response
         try:
-            parsed_result = json.loads(result["content"])
+            parsed_result = json.loads(result["text"])
             
             # Validate and ensure required fields
             return {
                 "response": parsed_result.get("response", "I'm unable to provide a specific response to your query at this time."),
                 "sources": parsed_result.get("sources", []),
-                "confidence": result.get("confidence", 0.5),
-                "synthesis_notes": result.get("synthesis_notes", "Fallback response")
+                "confidence": parsed_result.get("confidence", 0.5),
+                "synthesis_notes": parsed_result.get("synthesis_notes", "Fallback response")
             }
             
         except json.JSONDecodeError:
             self.logger.warning("Failed to parse fallback response as JSON")
             return {
-                "response": result["content"],
+                "response": result["text"],
                 "sources": [],
                 "confidence": 0.5,
                 "synthesis_notes": "Raw fallback response due to parsing error"
