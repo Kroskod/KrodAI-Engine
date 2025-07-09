@@ -182,42 +182,98 @@ class LLMManager:
     async def generate_text(
         self,
         prompt: str,
-        model: str = "gpt-3.5-turbo",
+        model: str = "gpt-3.5-turbo" or "gpt-4o",
         max_tokens: int = 4000,
         temperature: float = 0.7,
-        
+        system_message: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Generate text using system and user prompts.
-
+        Generate text using OpenAI's chat completion API.
+        
+        Args:
+            prompt: The main prompt/user message
+            model: OpenAI model to use
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature (0-2)
+            system_message: Optional system message for context
+            
         Returns:
-            A dictionary with success flag, content or error message, and metadata.
+            Dictionary with success flag, content, and metadata
         """
+        # Input validation
+        if not prompt or not prompt.strip():
+            return {
+                "success": False,
+                "error": "Prompt cannot be empty",
+                "prompt_type": "text"
+            }
+        
+        if not (0 <= temperature <= 2):
+            return {
+                "success": False,
+                "error": "Temperature must be between 0 and 2",
+                "prompt_type": "text"
+            }
+        
+        if max_tokens <= 0:
+            return {
+                "success": False,
+                "error": "max_tokens must be positive",
+                "prompt_type": "text"
+            }
+        
         try:
             response = await self._call_openai_chat(
-                system_message=prompt,
-                user_message="", 
+                system_message=system_message or "You are a helpful assistant.",
+                user_message=prompt,  # Prompt goes to user message
                 temperature=temperature,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                model=model
             )
 
             choices = response.get("choices", [])
-            if not choices or not choices[0].get("message"):
-                raise ValueError("No valid message in response.")
+            if not choices:
+                raise ValueError("No choices returned from API")
+                
+            message = choices[0].get("message", {})
+            content = message.get("content")
+            
+            if not content:
+                raise ValueError("No content in response message")
 
-            return {    
+            return {
                 "success": True,
-                "text": choices[0]["message"]["content"],
+                "text": content,
                 "usage": response.get("usage", {}),
-                "model": response.get("model", self.config.get("default_model", "unknown")),
-                "prompt_type": "text"
+                "model": response.get("model", model),
+                "prompt_type": "text",
+                "finish_reason": choices[0].get("finish_reason")
             }
 
+        except openai.RateLimitError as e:
+            self.logger.warning(f"Rate limit exceeded: {str(e)}")
+            return {
+                "success": False,
+                "error": "Rate limit exceeded. Please try again later.",
+                "error_type": "rate_limit",
+                "prompt_type": "text"
+            }
+        
+        except openai.APIError as e:
+            self.logger.error(f"OpenAI API error: {str(e)}")
+            return {
+                "success": False,
+                "error": f"API error: {str(e)}",
+                "error_type": "api_error",
+                "prompt_type": "text"
+            }
+        
         except Exception as e:
             self.logger.error(f"generate_text failed: {str(e)}", exc_info=True)
             return {
                 "success": False,
                 "error": str(e),
+                "error_type": "unknown",
                 "prompt_type": "text"
             }
 
