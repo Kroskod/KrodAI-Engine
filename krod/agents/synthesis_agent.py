@@ -175,7 +175,7 @@ class SynthesisAgent:
         """
 
         # generate synthesised response
-        success, content = await self.llm_manager.generate_text(
+        result = await self.llm_manager.generate_text(
             user_message,
             system_message=system_message,
             temperature=0.3,
@@ -183,30 +183,30 @@ class SynthesisAgent:
             model="gpt-4o"
         )
 
-        if not success:
+        if not result["success"]:
             self.logger.warning("Failed to generate synthesised memory and research response")
             return await self._generate_fallback_response(query, context)
 
         # parse json response
         try:
-            result = json.loads(content)
+            parsed_result = json.loads(result["content"])
             
             # Validate expected structure
-            if not isinstance(result, dict) or "response" not in result:
+            if not isinstance(parsed_result, dict) or "response" not in parsed_result:
                 raise ValueError("Invalid response structure")
                 
             # Ensure required fields have defaults
             return {
-                "response": result.get("response", ""),
-                "sources": result.get("sources", []),
-                "confidence": result.get("confidence", 0.5),
-                "synthesis_notes": result.get("synthesis_notes", "")
+                "response": parsed_result.get("response", ""),
+                "sources": parsed_result.get("sources", []),
+                "confidence": parsed_result.get("confidence", 0.5),
+                "synthesis_notes": parsed_result.get("synthesis_notes", "")
             }
             
         except (json.JSONDecodeError, ValueError) as e:
             self.logger.warning(f"Failed to parse synthesised response: {e}")
             return {
-                "response": content,
+                "response": result["content"],
                 "sources": [],
                 "confidence": 0.5,
                 "synthesis_notes": "Raw response due to parsing error"
@@ -266,7 +266,7 @@ class SynthesisAgent:
         Please create a response based on this memory data.
         """
         # generate formatted response
-        success, content = await self.llm_manager.generate_text(
+        result = await self.llm_manager.generate_text(
             user_message,
             system_message=system_message,
             temperature=0.3,
@@ -274,18 +274,18 @@ class SynthesisAgent:
             model="gpt-4o"
         )
         
-        if not success:
+        if not result["success"]:
             self.logger.warning("Failed to format memory response")
             return await self._generate_fallback_response(query, context)
             
         # Parse JSON response
         try:
-            result = json.loads(content)
-            return result
+            parsed_result = json.loads(result["content"])
+            return parsed_result
         except json.JSONDecodeError:
             self.logger.warning("Failed to parse memory response as JSON")
             return {
-                "response": content,
+                "response": result["content"],
                 "sources": [],
                 "confidence": 0.5,
                 "synthesis_notes": "Raw response due to parsing error"
@@ -361,7 +361,7 @@ class SynthesisAgent:
     """
 
         # Generate formatted response
-        success, content = await self.llm_manager.generate_text(
+        result = await self.llm_manager.generate_text(
             user_message,
             system_message=system_message,
             temperature=0.3,
@@ -369,7 +369,7 @@ class SynthesisAgent:
             model="gpt-4o"
         )
 
-        if not success:
+        if not result["success"]:
             self.logger.warning("Failed to format research response")
             # Fall back to using the reasoning directly
             return {
@@ -381,12 +381,12 @@ class SynthesisAgent:
 
         # Parse JSON response
         try:
-            result = json.loads(content)
+            parsed_result = json.loads(result["content"])
             
             # Validate and ensure required fields
             return {
-                "response": result.get("response", reasoning or "Unable to format research response"),
-                "sources": result.get("sources", self._extract_sources_from_evidence(evidence_sources)),
+                "response": parsed_result.get("response", reasoning or "Unable to format research response"),
+                "sources": parsed_result.get("sources", self._extract_sources_from_evidence(evidence_sources)),
                 "confidence": result.get("confidence", 0.6),
                 "synthesis_notes": result.get("synthesis_notes", "Formatted research response")
             }
@@ -394,7 +394,7 @@ class SynthesisAgent:
         except json.JSONDecodeError:
             self.logger.warning("Failed to parse research response as JSON")
             return {
-                "response": content,
+                "response": result["content"],
                 "sources": self._extract_sources_from_evidence(evidence_sources),
                 "confidence": 0.6,
                 "synthesis_notes": "Raw response due to parsing error"
@@ -463,7 +463,7 @@ class SynthesisAgent:
         """
         
         # Generate synthesized response
-        success, content = await self.llm_manager.generate_text(
+        result = await self.llm_manager.generate_text(
             user_message,
             system_message=system_message,
             temperature=0.3,
@@ -471,7 +471,7 @@ class SynthesisAgent:
             model="gpt-4o"
         )
         
-        if not success:
+        if not result["success"]:
             self.logger.warning("Failed to synthesize other agent responses")
             # Fall back to concatenating responses
             combined_response = "\n\n".join([
@@ -486,12 +486,12 @@ class SynthesisAgent:
             
         # Parse JSON response
         try:
-            result = json.loads(content)
+            result = json.loads(result["content"])
             return result
         except json.JSONDecodeError:
             self.logger.warning("Failed to parse synthesis response as JSON")
             return {
-                "response": content,
+                "response": result["content"],
                 "sources": [],
                 "confidence": 0.5
             }
@@ -542,7 +542,7 @@ class SynthesisAgent:
         """
 
         # Generate fallback response
-        success, content = await self.llm_manager.generate_text(
+        result = await self.llm_manager.generate_text(
             user_message,
             system_message=system_message,
             temperature=0.7,  # Slightly higher for more natural fallback responses
@@ -550,7 +550,7 @@ class SynthesisAgent:
             model="gpt-4o"
         )
 
-        if not success:
+        if not result["success"]:
             self.logger.error("Failed to generate fallback response")
             # Hard-coded fallback if even the LLM fails
             return {
@@ -562,12 +562,12 @@ class SynthesisAgent:
 
         # Parse JSON response
         try:
-            result = json.loads(content)
+            parsed_result = json.loads(result["content"])
             
             # Validate and ensure required fields
             return {
-                "response": result.get("response", "I'm unable to provide a specific response to your query at this time."),
-                "sources": result.get("sources", []),
+                "response": parsed_result.get("response", "I'm unable to provide a specific response to your query at this time."),
+                "sources": parsed_result.get("sources", []),
                 "confidence": result.get("confidence", 0.5),
                 "synthesis_notes": result.get("synthesis_notes", "Fallback response")
             }
@@ -575,8 +575,38 @@ class SynthesisAgent:
         except json.JSONDecodeError:
             self.logger.warning("Failed to parse fallback response as JSON")
             return {
-                "response": content,
+                "response": result["content"],
                 "sources": [],
                 "confidence": 0.5,
                 "synthesis_notes": "Raw fallback response due to parsing error"
             }
+    
+    def _extract_sources_from_evidence(
+        self,
+        evidence_sources: List[Dict[str, Any]]
+    ) -> List[Dict[str, str]]:
+        """
+        Extract sources information from evidence sources.
+        
+        Args:
+            evidence_sources: List of evidence sources objects
+            
+        Returns:
+            List of sources dictionaries with title and url
+        """
+
+        sources = []
+        for source in evidence_sources:
+            if isinstance(source, dict):
+                title = source.get("title", "Unknown Source")
+                url = source.get("url", "")
+                if url:
+                    sources.append({"title": title, "url": url})
+            else:
+                # Handle case where evidence_source might be an object
+                title = getattr(source, "title", "Unknown Source")
+                url = getattr(source, "url", "")
+                if url:
+                    sources.append({"title": title, "url": url})
+                    
+        return sources

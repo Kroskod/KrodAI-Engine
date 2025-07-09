@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Optional
 from krod.core.token_manager import TokenManager
 from krod.core.vector_store import VectorStore
 from .prompts import PromptManager
+from openai import OpenAI, RateLimitError, APIError
 
 class LLMManager:
     """
@@ -136,7 +137,8 @@ class LLMManager:
         system_message: str, 
         user_message: str, 
         temperature: float = 0.7,
-        max_tokens: Optional[int] = None
+        max_tokens: Optional[int] = None,
+        model: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Internal method to call the OpenAI Chat API.
@@ -150,7 +152,7 @@ class LLMManager:
         Returns:
             Raw API response
         """
-        model = self.config["default_model"]
+        model = model or self.config["default_model"]
         
         params = {
             "model": model,
@@ -182,7 +184,7 @@ class LLMManager:
     async def generate_text(
         self,
         prompt: str,
-        model: str = "gpt-3.5-turbo" or "gpt-4o",
+        model: str = "gpt-3.5-turbo",
         max_tokens: int = 4000,
         temperature: float = 0.7,
         system_message: Optional[str] = None
@@ -250,7 +252,7 @@ class LLMManager:
                 "finish_reason": choices[0].get("finish_reason")
             }
 
-        except openai.RateLimitError as e:
+        except RateLimitError as e:
             self.logger.warning(f"Rate limit exceeded: {str(e)}")
             return {
                 "success": False,
@@ -259,7 +261,7 @@ class LLMManager:
                 "prompt_type": "text"
             }
         
-        except openai.APIError as e:
+        except APIError as e:
             self.logger.error(f"OpenAI API error: {str(e)}")
             return {
                 "success": False,
