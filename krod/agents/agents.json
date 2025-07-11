@@ -32,5 +32,40 @@
 
         "enabled": true
 
+      },
+
+      {
+        "name": "SynthesisAgent",
+        "type": "synthesis",
+        "function": "synthesis_agent.run",
+        "module_path": "krod.agents.synthesis_agent",
+        "class_name": "SynthesisAgent",
+        "description": "Handles synthesis of information from multiple sources. Returns a single coherent response.",
+        "capabilities": [
+            "synthesis",
+            "document_processing",
+            "academic_search",
+            "web_search",
+            "reasoning_interpretation"
+        ],
+        "input_schema": {
+          "query": "string",
+          "context": "object"
+
+        },
+        "output_schema": {
+          "reasoning": "string",
+          "evidence_sources": "list"
+        },
+
+        "trigger": {
+            "type": "keyword",
+            "keywords": [
+                "synthesis"
+            ]
+        },
+
+        "enabled": true
+
       }
 ]

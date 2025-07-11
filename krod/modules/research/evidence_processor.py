@@ -334,23 +334,23 @@ class EvidenceProcessor:
             Summarized and structured content
         """
         try:
-            # Prepare prompt for the LLM
+            # prepare prompt for the LLM
             prompt = f"""You are an expert research assistant tasked with extracting and structuring the most important information from a document.
 
-User Query: {query}
+        User Query: {query}
 
-Document: {content[:6000] if len(content) > 6000 else content}  # Limit content to avoid token limits
+        Document: {content[:6000] if len(content) > 6000 else content}  # Limit content to avoid token limits
 
-Your task:
-1. Extract the key information from this document that is most relevant to the user's query
-2. Structure the information as concise bullet points
-3. Preserve important facts, statistics, and quotes
-4. Include only information that is explicitly stated in the document
-5. Do not add any information or opinions not present in the original text
-6. Format your response as a list of bullet points (using • symbol)
-7. Limit your response to the most important points
+        Your task:
+        1. Extract the key information from this document that is most relevant to the user's query
+        2. Structure the information as concise bullet points
+        3. Preserve important facts, statistics, and quotes
+        4. Include only information that is explicitly stated in the document
+        5. Do not add any information or opinions not present in the original text
+        6. Format your response as a list of bullet points (using • symbol)
+        7. Limit your response to the most important points
 
-Structured Information:"""
+        Structured Information:"""
 
             # Call LLM to summarize
             response = await self.llm_manager.generate_text(
@@ -399,33 +399,33 @@ Structured Information:"""
         if not sources:
             return []
             
-        # Sort sources by confidence
+        # sort sources by confidence
         sorted_sources = sorted(sources, key=lambda s: s.confidence, reverse=True)
         
-        # Calculate token budget per source
+        # calculate token budget per source
         total_sources = len(sorted_sources)
         base_tokens_per_source = self.max_evidence_token // total_sources
         
-        # Adjust token allocation based on confidence
+        # adjust token allocation based on confidence
         total_confidence = sum(s.confidence for s in sorted_sources)
         optimized_sources = []
         
         remaining_tokens = self.max_evidence_token    
         
         for source in sorted_sources:
-            # Allocate tokens proportionally to confidence
+            # allocate tokens proportionally to confidence
             weight = source.confidence / total_confidence if total_confidence > 0 else 1/total_sources
             allocated_tokens = min(int(self.max_evidence_token * weight), remaining_tokens)
             
-            # Ensure minimum tokens per source
-            allocated_tokens = max(allocated_tokens, 200)  # At least 200 tokens per source
+            # ensure minimum tokens per source
+            allocated_tokens = max(allocated_tokens, 200)  # at least 200 tokens per source
             
-            # Truncate content to fit allocation
+            # truncate content to fit allocation
             content = source.extract or ""
             if self._count_tokens(content) > allocated_tokens:
                 content = self._truncate_to_token_limit(content, allocated_tokens)
                 
-            # Update source with optimized content
+            # update source with optimized content
             optimized_source = EvidenceSource(
                 url=source.url,
                 title=source.title,
