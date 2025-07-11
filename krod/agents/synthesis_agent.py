@@ -315,14 +315,14 @@ class SynthesisAgent:
 
         # Extract research components
         reasoning = research_data.get("reasoning", "")
-        context = research_data.get("context", "")
+        research_context = research_data.get("context", "")
         evidence_sources = research_data.get("evidence_sources", [])
 
         # If research data already has a formatted response, use it
         if "response" in research_data:
             return {
                 "response": research_data["response"],
-                "context": context,
+                "context": research_context,
                 "sources": self._extract_sources_from_evidence(evidence_sources),
                 "confidence": research_data.get("confidence", 0.8),
                 "synthesis_notes": "Using pre-formatted research response"
@@ -380,7 +380,7 @@ class SynthesisAgent:
             # Fall back to using the reasoning directly
             return {
                 "response": reasoning if reasoning else "Unable to format research response",
-                "context": context,
+                "context": research_context,
                 "sources": self._extract_sources_from_evidence(evidence_sources),
                 "confidence": 0.7,
                 "synthesis_notes": "Direct reasoning fallback due to formatting failure"

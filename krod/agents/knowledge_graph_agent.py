@@ -7,12 +7,12 @@ Provides structured knowledge and relationships information from a knowledge gra
 import logging
 from typing import Dict, Any, Optional, Set, Tuple, List, Union
 
-from krod.core.knowledge_graph import KnowledgeGraph
+from krod.core.llm_manager import LLMManager
 from krod.core.agent_context import AgentContext
 
 
 try: 
-    import networkx as nex
+    import networkx as nx
     NETWORKX_AVAILABLE = True
 except ImportError:
     NETWORKX_AVAILABLE = False
@@ -144,3 +144,155 @@ class KnowledgeGraph:
 
 
         return (source_id, relation_type, target_id)
+
+    # TODO: implement add_entity and add_relationship with get_entity and get_relationship
+
+
+
+class KnowledgeGraphAgent:
+    """
+    Agent for managing and querying a knowledge graph of entities and relationships.
+    
+    This agent is responsible for:
+    1. Extracting entities and relationships from text
+    2. Building and maintaining a knowledge graph
+    3. Answering queries about entity relationships
+    4. Providing structured knowledge for complex queries
+    """
+
+    def __init__(
+        self,
+        llm_manager: LLMManager,
+        config: Optional[Dict] = None
+    ):
+        """
+        Initialize the KnowledgeGraphAgent.
+        
+        Args:
+            llm_manager: LLM manager for text generation and entity extraction
+            config: Optional configuration dictionary
+        """
+        self.llm_manager = llm_manager
+        self.config = config or {}
+        self.logger = logging.getLogger("krod.knowledge_graph_agent")
+        
+        # Initialize knowledge graph
+        use_networkx = self.config.get("use_networkx", True)
+        self.knowledge_graph = KnowledgeGraph(use_networkx=use_networkx)
+        
+        self.logger.info("KnowledgeGraphAgent initialized")
+
+    async def process(
+        self,
+        query: str,
+        context: AgentContext,
+        streaming: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Process and synthesise multiple agent response into a single coherent response.
+
+        Args:
+            query: The original user query
+            context: Conversation Context
+            streaming: Whether to stream the response
+
+        Returns: 
+            A dictionary containing meta data and the synthesised response
+        """
+
+        self.logger.info(f"Processign query with knowledge graph: {query}")
+
+        try:
+            # extract entities from query
+            entities = await self._extract_entities(query)
+            
+            if not entities:
+                self.logger.info("No entities found in query")
+                return {
+                    "entities": [],
+                    "relationships": [],
+                    "answer": "I'm sorry, I couldn't find any entities to look up."
+                }
+            
+            # get entity IDs from entities
+            entity_ids = [entity["id"] for entity in entities]
+
+            # get subgraph of those entities
+            subgraph = self.knowledge_graph.get_subgraph(entity_ids, max_depth=2)
+
+            # generate answer based on subgraph
+            answer = await self._generate_answer(query, entities, subgraph)
+
+            return {
+                "entities": subgraph["entities"],
+                "relationships": subgraph["relationships"],
+                "graph_context": {
+                    "query_entities": entities,
+                    "depth": 2
+                },
+                "answer": answer
+            }
+        
+        except Exception as e:
+            self.logger.error(f"Error in knowledge graph processing: {str(e)}")
+            return {
+                "entities": [],
+                "relationships": [],
+                "answer": "I encountered an error while processing your query with the knowledge graph."
+            }
+    
+    async def learn_from_text(
+        self,
+        text: str,
+        source_url: str = None
+    ) -> Dict[str, Any]:
+
+        """
+        Extract entities and relationships from text and add them to knowledge graph.
+
+        Args:
+            text: Text to extract knowledge from
+            source_url: Optional source URL for citations
+
+        Returns:
+            Dictionary containing entities and relationships added
+        """
+
+        self.logger.info(f"Learning from text ({len(text)} chars)")
+
+        # extract entities and realationships
+        extraction_result = await self._extract_knowledge(text, source_url)
+
+        entities_added = 0
+        relationships_added = 0
+
+        # add entities to graph
+        for entity in extraction_result.get("entities", []):
+            entity_id = entity.get("id")
+            entity_type = entity.get("type")
+            properties = {k: v for k, v in entity.items() if k not in ["id", "type"]}
+            
+            if source_url:
+                properties["sources"] = properties.get("sources", []) + [source_url]
+                
+            self.knowledge_graph.add_entity(entity_id, entity_type, properties)
+            entities_added += 1
+        
+        # Add relationships to graph
+        for relationship in extraction_result.get("relationships", []):
+            source_id = relationship.get("source")
+            target_id = relationship.get("target")
+            rel_type = relationship.get("type")
+            properties = {k: v for k, v in relationship.items() 
+                         if k not in ["source", "target", "type"]}
+            
+            if source_url:
+                properties["sources"] = properties.get("sources", []) + [source_url]
+                
+            self.knowledge_graph.add_relationship(source_id, rel_type, target_id, properties)
+            relationships_added += 1
+        
+        return {
+            "entities_added": entities_added,
+            "relationships_added": relationships_added
+        }
