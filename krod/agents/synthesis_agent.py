@@ -295,7 +295,8 @@ class SynthesisAgent:
         self, 
         query: str, 
         research_data: Dict[str, Any], 
-        context: AgentContext
+        context: AgentContext,
+        streaming: bool = False
     ) -> Dict[str, Any]:
         """
         Format a response based only on research data.
@@ -304,20 +305,24 @@ class SynthesisAgent:
             query: Original user query
             research_data: Data from ResearchAgent
             context: Conversation context
+            streaming: Whether to stream the response (currently unused, kept for API consistency)
 
         Returns:
             Formatted research response
         """
+        # NOTE: The streaming parameter is currently unused but kept for API consistency with the process method
         self.logger.info("Formatting research-only response")
 
         # Extract research components
         reasoning = research_data.get("reasoning", "")
+        context = research_data.get("context", "")
         evidence_sources = research_data.get("evidence_sources", [])
 
         # If research data already has a formatted response, use it
         if "response" in research_data:
             return {
                 "response": research_data["response"],
+                "context": context,
                 "sources": self._extract_sources_from_evidence(evidence_sources),
                 "confidence": research_data.get("confidence", 0.8),
                 "synthesis_notes": "Using pre-formatted research response"
@@ -361,6 +366,7 @@ class SynthesisAgent:
     """
 
         # Generate formatted response
+        # NOTE: The streaming parameter is currently unused but kept for API consistency with the process method.
         result = await self.llm_manager.generate_text(
             user_message,
             system_message=system_message,
@@ -374,6 +380,7 @@ class SynthesisAgent:
             # Fall back to using the reasoning directly
             return {
                 "response": reasoning if reasoning else "Unable to format research response",
+                "context": context,
                 "sources": self._extract_sources_from_evidence(evidence_sources),
                 "confidence": 0.7,
                 "synthesis_notes": "Direct reasoning fallback due to formatting failure"
@@ -486,8 +493,8 @@ class SynthesisAgent:
             
         # Parse JSON response
         try:
-            result = json.loads(result["text"])
-            return result
+            parsed_result = json.loads(result["text"])
+            return parsed_result
         except json.JSONDecodeError:
             self.logger.warning("Failed to parse synthesis response as JSON")
             return {
