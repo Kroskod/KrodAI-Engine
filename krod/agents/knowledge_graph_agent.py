@@ -145,8 +145,205 @@ class KnowledgeGraph:
 
         return (source_id, relation_type, target_id)
 
-    # TODO: implement add_entity and add_relationship with get_entity and get_relationship
+    def get_entity(
+        self,
+        entity_id: str
+    ) -> Dict:
+        """
+        Get entity by ID.
+        
+        Args:
+            entity_id: Entity ID
+            
+        Returns:
+            Entity properties or empty dict if not found
+        """
+        if self.use_networkx:
+            if entity_id in self.graph:
+                return dict(self.graph.nodes[entity_id])
+            return {}
+        else:
+            return self.entities.get(entity_id, {})
 
+
+    def get_relationships(
+        self,
+        entity_id: str,
+        direction: str = "outgoing"
+    ) -> List[Dict]:
+        """
+        Get relationships for an entity.
+        
+        Args:
+            entity_id: Entity ID
+            direction: 'outgoing', 'incoming', or 'both'
+            
+        Returns:
+            List of relationship dictionaries
+        """
+
+        relationships = [] # initialize relationships list
+
+        if self.use_networkx:
+            # networkx implementation
+            if direction in ["outgoing", "both"]:
+                for target_id in self.graph.successors(entity_id):
+                    edge_data = self.graph[entity_id][target_id]
+                    relationships.append({
+                        "source": entity_id,
+                        "target": target_id,
+                        "type": edge_data.get("type", "unknown"),
+                        "properties": {k: v for k, v in edge_data.items() if k != "type"}
+                    })
+
+            # fallback implementation for networkx
+            if direction in ["incoming", "both"]:
+                for source_id in self.graph.predecessors(entity_id):
+                    edge_data = self.graph[source_id][entity_id]
+                    relationships.append({
+                        "source": source_id,
+                        "target": entity_id,
+                        "type": edge_data.get("type", "unknown"),
+                        "properties": {k: v for k, v in edge_data.items() if k != "type"}
+                    })
+
+            # fallback implementation for dictionary
+            else:
+                if direction in ["outgoing", "both"]:
+                    for rel_type, target_id in self.forward_index.get(entity_id, set()):
+                        rel_data = self.relationships.get((entity_id, target_id), {})
+                        relationships.append({
+                            "source": entity_id,
+                            "target": target_id,
+                            "type": rel_type,
+                            "properties": {k: v for k, v in rel_data.items() if k != "type"}
+                        })
+            
+            # fallback implementation for dictionary
+            if direction in ["incoming", "both"]:
+                for rel_type, source_id in self.backward_index.get(entity_id, set()):
+                    rel_data = self.relationships.get((source_id, entity_id), {})
+                    relationships.append({
+                        "source": source_id,
+                        "target": entity_id,
+                        "type": rel_type,
+                        "properties": {k: v for k, v in rel_data.items() if k != "type"}
+                    })
+        
+        return relationships  # return the relationships
+
+    def search_entities(self, query: str, entity_type: str = None) -> List[Dict]:
+        """
+        Search for entities matching the query.
+        
+        Args:
+            query: Search query
+            entity_type: Optional filter by entity type
+            
+        Returns:
+            List of matching entities with their properties
+        """
+        query = query.lower() # convert query to lowercase
+        results = [] # initialize results list
+
+        if self.use_networkx:
+            for node_id, data in self.graph.nodes(data=True):
+                if query in node_id.lower():
+                    if entity_type is None or data.get("type") == entity_type:
+                        results.append({"id": node_id, **data})
+
+        else:
+            for entity_id, properties in self.entities.items():
+                if query in entity_id.lower():
+                    if entity_type is None or properties.get("type") == entity_type:
+                        results.append({"id": entity_id, **properties})
+        
+        return results
+
+    def get_subgraph(self, entity_ids: List[str], max_depth: int = 2) -> Dict:
+        """
+        Get a subgraph centered around specified entities.
+        
+        Args:
+            entity_ids: List of entity IDs to start from
+            max_depth: Maximum traversal depth
+            
+        Returns:
+            Dictionary with entities and relationships
+        """
+        if not entity_ids: 
+            return {"entities": [], "relationships": []} # if no entity ids return empty subgraph
+        
+        visited_entities = set()
+        visited_relationships = set()
+        queue = [(entity_id, 0) for entity_id in entity_ids]
+        
+        while queue:
+            current_id, depth = queue.pop(0)
+            
+            if current_id in visited_entities or depth > max_depth:
+                continue
+                
+            visited_entities.add(current_id)
+            
+            # get outgoing relationships
+            for rel in self.get_relationships(current_id, "outgoing"):
+                rel_key = (rel["source"], rel["type"], rel["target"])
+                if rel_key not in visited_relationships:
+                    visited_relationships.add(rel_key)
+                    if depth < max_depth:
+                        queue.append((rel["target"], depth + 1))
+            
+            # get incoming relationships
+            for rel in self.get_relationships(current_id, "incoming"):
+                rel_key = (rel["source"], rel["type"], rel["target"])
+                if rel_key not in visited_relationships:
+                    visited_relationships.add(rel_key)
+                    if depth < max_depth:
+                        queue.append((rel["source"], depth + 1))
+        
+        # build result
+        entities = [] # list of entities
+        relationships = [] # list of relationships
+        
+        if self.use_networkx:
+            for entity_id in visited_entities:
+                entities.append({
+                    "id": entity_id,
+                    **dict(self.graph.nodes[entity_id])
+                })
+
+            # get relationships
+            for source, target, data in self.graph.edges(data=True):
+                if (source, data.get("type", "unknown"), target) in visited_relationships:
+                    relationships.append({
+                        "source": source,
+                        "target": target,
+                        "type": data.get("type", "unknown"),
+                        "properties": {k: v for k, v in data.items() if k != "type"}
+                    })
+        else:
+            for entity_id in visited_entities:
+                entities.append({
+                    "id": entity_id,
+                    **self.entities[entity_id] # get and add entity properties
+                })
+            
+            # get relationships
+            for (source, target), data in self.relationships.items():
+                rel_type = data.get("type", "unknown")
+                if (source, rel_type, target) in visited_relationships:
+                    relationships.append({
+                        "source": source,
+                        "target": target,
+                        "type": rel_type,
+                        "properties": {k: v for k, v in data.items() if k != "type"}
+                    }) # get and add relationship properties
+        
+        return {
+            "entities": entities,
+            "relationships": relationships
+        }
 
 
 class KnowledgeGraphAgent:
@@ -266,8 +463,8 @@ class KnowledgeGraphAgent:
         entities_added = 0
         relationships_added = 0
 
-        # add entities to graph
-        for entity in extraction_result.get("entities", []):
+        # entities to graph
+        for entity in extraction_result.get("entities`", []):
             entity_id = entity.get("id")
             entity_type = entity.get("type")
             properties = {k: v for k, v in entity.items() if k not in ["id", "type"]}
@@ -278,7 +475,7 @@ class KnowledgeGraphAgent:
             self.knowledge_graph.add_entity(entity_id, entity_type, properties)
             entities_added += 1
         
-        # Add relationships to graph
+        # relationships to graph
         for relationship in extraction_result.get("relationships", []):
             source_id = relationship.get("source")
             target_id = relationship.get("target")
@@ -286,7 +483,7 @@ class KnowledgeGraphAgent:
             properties = {k: v for k, v in relationship.items() 
                          if k not in ["source", "target", "type"]}
             
-            if source_url:
+            if source_url:  # add source url to properties if it exists
                 properties["sources"] = properties.get("sources", []) + [source_url]
                 
             self.knowledge_graph.add_relationship(source_id, rel_type, target_id, properties)

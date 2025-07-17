@@ -24,6 +24,8 @@ from krod.core.llm_manager import LLMManager
 from krod.core.memory.memory_manager import MemoryManager
 from krod.core.agent_context import AgentContext
 from collections.abc import AsyncGenerator
+from krod.agents.clarifier_agent import ClarifierAgent
+from krod.agents.knowledge_graph_agent import KnowledgeGraphAgent
 # todo: 
 
 
@@ -369,7 +371,7 @@ class AgentManager:
             self.logger.info(f"Invoking agent: {agent_name}")
             
             # get the agent instance
-            agent_instance = self._get_agent_instance(agent_config)
+            agent_instance = self._get_agents_instance(agent_config)
             if not agent_instance:
                 raise ValueError(f"Failed to get instance for agent {agent_name}")
             
